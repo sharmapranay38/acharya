@@ -1,34 +1,33 @@
-import type { Config } from "tailwindcss"
-
-const config: Config = {
-  darkMode: ["class"],
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   content: [
-    "./pages/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./app/**/*.{ts,tsx}",
-    "./src/**/*.{ts,tsx}",
-    "*.{js,ts,jsx,tsx,mdx}",
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+
+    // Or if using `src` directory:
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   safelist: [
-    'bg-background',
-    'text-foreground',
-    'border-border',
-    'bg-card',
-    'text-card-foreground',
-    'bg-popover',
-    'text-popover-foreground',
-    'bg-primary',
-    'text-primary-foreground',
-    'bg-secondary',
-    'text-secondary-foreground',
-    'bg-muted',
-    'text-muted-foreground',
-    'bg-accent',
-    'text-accent-foreground',
-    'bg-destructive',
-    'text-destructive-foreground',
-    'border-input',
-    'ring-ring',
+    "bg-background",
+    "text-foreground",
+    "border-border",
+    "bg-card",
+    "text-card-foreground",
+    "bg-popover",
+    "text-popover-foreground",
+    "bg-primary",
+    "text-primary-foreground",
+    "bg-secondary",
+    "text-secondary-foreground",
+    "bg-muted",
+    "text-muted-foreground",
+    "bg-accent",
+    "text-accent-foreground",
+    "bg-destructive",
+    "text-destructive-foreground",
+    "border-input",
+    "ring-ring",
   ],
   theme: {
     container: {
@@ -95,10 +94,5 @@ const config: Config = {
       },
     },
   },
-  plugins: [
-    require("tailwindcss-animate"),
-    require("@tailwindcss/typography"),
-  ],
-}
-
-export default config
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+};
