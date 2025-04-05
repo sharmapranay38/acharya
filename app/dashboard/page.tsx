@@ -5,8 +5,16 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { RecentUploads } from "@/components/recent-uploads"
 import { UploadButton } from "@/components/upload-button"
 import { Overview } from "@/components/overview"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const session = await auth();
+  
+  if (!session?.userId) {
+    redirect("/sign-in");
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <DashboardHeader />
@@ -313,4 +321,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-
