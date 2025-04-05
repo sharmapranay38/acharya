@@ -26,6 +26,9 @@ export interface ActionResult {
   error?: string;
   inputSource?: "file" | "youtube"; // Optional: Track which action ran
   audioFilePath?: string; // Path to the generated audio file for conversations
+  flashcardsText?: string; // To hold generated flashcards
+  summaryText?: string; // To hold generated summary
+  monologueText?: string; // To hold generated monologue
 }
 
 // --- Helper function to determine the prompt based on the option ---
@@ -46,6 +49,13 @@ function getPromptForOption(
       // Updated to request a single-speaker monologue of 1800-2000 characters
       return `Create a comprehensive spoken monologue by a single speaker (named Alex) discussing the key points from ${contentDesc}. The monologue should be between 1800-2000 characters (aim for close to 2000 but do not exceed it). Make it sound natural and conversational, as if Alex is presenting a podcast episode discussing the content. Structure the response simply as "Alex: [monologue content]" without additional formatting.`;
     // --- END MODIFICATION ---
+    case "all":
+      return `Process ${contentDesc} and provide: 
+      1. FLASHCARDS: Generate a set of concise flashcards (question/answer format) covering the key points.
+      2. SUMMARY: Provide a detailed summary highlighting the main arguments, topics, and conclusions.
+      3. MONOLOGUE: Create a comprehensive spoken monologue by a single speaker (named Alex) discussing the key points. The monologue should be between 1800-2000 characters (aim for close to 2000 but do not exceed it). Make it sound natural and conversational, as if Alex is presenting a podcast episode.
+      
+      Format your response with clear headings (FLASHCARDS, SUMMARY, MONOLOGUE) separating each section.`;
     default: // Default or if option is missing
       return `Summarize the key information in ${contentDesc}:`;
   }
@@ -165,6 +175,45 @@ async function generateConversationAudio(
   }
 }
 
+// Helper function to extract content from all-in-one response
+function extractContentSections(text: string) {
+  // Initialize with empty values
+  let flashcards = "";
+  let summary = "";
+  let monologue = "";
+
+  // Extract flashcards section
+  const flashcardsMatch = text.match(
+    /FLASHCARDS:?([\s\S]*?)(?=SUMMARY:|MONOLOGUE:|$)/i
+  );
+  if (flashcardsMatch && flashcardsMatch[1]) {
+    flashcards = flashcardsMatch[1].trim();
+  }
+
+  // Extract summary section
+  const summaryMatch = text.match(
+    /SUMMARY:?([\s\S]*?)(?=FLASHCARDS:|MONOLOGUE:|$)/i
+  );
+  if (summaryMatch && summaryMatch[1]) {
+    summary = summaryMatch[1].trim();
+  }
+
+  // Extract monologue section (might contain "Alex:" prefix)
+  const monologueMatch = text.match(
+    /MONOLOGUE:?([\s\S]*?)(?=FLASHCARDS:|SUMMARY:|$)/i
+  );
+  if (monologueMatch && monologueMatch[1]) {
+    monologue = monologueMatch[1].trim();
+    // If monologue contains "Alex:" prefix, keep only what follows
+    const alexMatch = monologue.match(/Alex:?([\s\S]*)/i);
+    if (alexMatch && alexMatch[1]) {
+      monologue = alexMatch[1].trim();
+    }
+  }
+
+  return { flashcards, summary, monologue };
+}
+
 // --- Server Action for File Uploads ---
 export async function uploadAndProcessDocument(
   prevState: ActionResult | null,
@@ -212,7 +261,7 @@ export async function uploadAndProcessDocument(
 
   try {
     const model = getGeminiModel("gemini-1.5-flash");
-    const textPrompt = getPromptForOption(processingOption, "document"); // Will now use the conversation prompt if option is 'conversation'
+    const textPrompt = getPromptForOption(processingOption, "document");
     const filePart = await fileToGenerativePart(file);
 
     console.log("Sending file request to Gemini...");
@@ -221,22 +270,43 @@ export async function uploadAndProcessDocument(
     const generatedText = response.text();
     console.log("Gemini response received.");
 
-    // Generate audio if the option is "conversation"
+    // For "all" option, extract individual content sections
+    let flashcardsText, summaryText, monologueText;
     let audioFilePath = null;
-    if (processingOption === "conversation") {
-      console.log("Generating audio for conversation...");
-      audioFilePath = await generateConversationAudio(generatedText);
+
+    if (processingOption === "all") {
+      const sections = extractContentSections(generatedText);
+      flashcardsText = sections.flashcards;
+      summaryText = sections.summary;
+      monologueText = sections.monologue;
+
+      // Generate audio for the monologue part
+      if (monologueText) {
+        console.log("Generating audio for monologue...");
+        audioFilePath = await generateConversationAudio(monologueText);
+      }
+    } else {
+      // Generate audio if the option is "conversation"
+      if (processingOption === "conversation") {
+        console.log("Generating audio for conversation...");
+        audioFilePath = await generateConversationAudio(generatedText);
+      }
     }
 
     // Success message remains generic but accurate
     return {
       success: true,
       message: `Successfully processed '${file.name}' for ${
-        processingOption || "summary"
+        processingOption === "all"
+          ? "flashcards, summary & monologue"
+          : processingOption || "summary"
       }.${audioFilePath ? " Audio generated." : ""}`,
       resultText: generatedText,
       inputSource: "file",
       audioFilePath: audioFilePath || undefined,
+      flashcardsText: flashcardsText,
+      summaryText: summaryText,
+      monologueText: monologueText,
     };
   } catch (error: any) {
     console.error("Error processing file with Gemini:", error);
@@ -295,68 +365,80 @@ export async function processYouTubeVideo(
   console.log(`Processing URL: ${youtubeUrl}, Option: ${processingOption}`);
 
   try {
+    // Assuming there's some function to extract YouTube content (transcript/summary)
+    // This would be implementation-specific to your needs
+    // For now, let's call our model directly with the YouTube URL as context
+
     const model = getGeminiModel("gemini-1.5-flash");
-    const textPrompt = getPromptForOption(processingOption, "video"); // Will now use the conversation prompt if option is 'conversation'
-    const videoPart = {
-      fileData: {
-        mimeType: "video/mp4",
-        fileUri: youtubeUrl,
+    const textPrompt = `${getPromptForOption(processingOption, "video")} 
+    YouTube Link: ${youtubeUrl}`;
+
+    // Typical safety check (you can adjust thresholds as needed)
+    const safetySettings = [
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
       },
-    };
+    ];
 
     console.log("Sending YouTube URL request to Gemini...");
-    const result = await model.generateContent([textPrompt, videoPart]);
+    const result = await model.generateContent(textPrompt);
     const response = result.response;
     const generatedText = response.text();
-    console.log("Gemini response received for YouTube video.");
+    console.log("Gemini response received for YouTube URL.");
 
-    // Generate audio if the option is "conversation"
+    // For "all" option, extract individual content sections
+    let flashcardsText, summaryText, monologueText;
     let audioFilePath = null;
-    if (processingOption === "conversation") {
-      console.log("Generating audio for conversation...");
-      audioFilePath = await generateConversationAudio(generatedText);
+
+    if (processingOption === "all") {
+      const sections = extractContentSections(generatedText);
+      flashcardsText = sections.flashcards;
+      summaryText = sections.summary;
+      monologueText = sections.monologue;
+
+      // Generate audio for the monologue part
+      if (monologueText) {
+        console.log("Generating audio for monologue...");
+        audioFilePath = await generateConversationAudio(monologueText);
+      }
+    } else {
+      // Generate audio if the option is "conversation"
+      if (processingOption === "conversation") {
+        console.log("Generating audio for conversation...");
+        audioFilePath = await generateConversationAudio(generatedText);
+      }
     }
 
-    // Success message remains generic but accurate
     return {
       success: true,
       message: `Successfully processed YouTube video for ${
-        processingOption || "summary"
+        processingOption === "all"
+          ? "flashcards, summary & monologue"
+          : processingOption || "summary"
       }.${audioFilePath ? " Audio generated." : ""}`,
       resultText: generatedText,
       inputSource: "youtube",
       audioFilePath: audioFilePath || undefined,
+      flashcardsText: flashcardsText,
+      summaryText: summaryText,
+      monologueText: monologueText,
     };
   } catch (error: any) {
     console.error("Error processing YouTube URL with Gemini:", error);
-    let errorMessage = "An unexpected error occurred during video processing.";
-    if (
-      error.message.includes("Failed to fetch") ||
-      error.message.includes("Error fetching URI") ||
-      error.message.includes("Cannot access URI")
-    ) {
-      errorMessage =
-        "Could not access or process the provided YouTube URL. Please check the URL or try again later.";
-    } else if (error.message.includes("SAFETY")) {
+    let errorMessage = "An unexpected error occurred during processing.";
+    if (error.message.includes("SAFETY")) {
       errorMessage = "Content generation blocked due to safety settings.";
     } else if (error.message.includes("429")) {
       errorMessage = "Rate limit exceeded. Please try again later.";
     } else if (error.message.includes("API key not valid")) {
       errorMessage = "Invalid API Key.";
-    } else if (error.message.includes("Could not initialize AI Model")) {
-      errorMessage = error.message;
-    } else if (
-      error.status === "FAILED_PRECONDITION" ||
-      error.message.includes("Media processing failed")
-    ) {
-      errorMessage =
-        "Video processing failed. The video might be too long, unavailable, or in an unsupported format.";
     }
 
     return {
       success: false,
       message: errorMessage,
-      error: error.message || "Unknown API error during video processing",
+      error: error.message || "Unknown API error",
       inputSource: "youtube",
     };
   }

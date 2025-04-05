@@ -136,7 +136,6 @@ function AudioPlayer({ audioSrc }: { audioSrc: string }) {
 
 // --- Helper Component for Displaying Results ---
 function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
-  // ... (Keep ResultsDisplay component as is - it looks good)
   if (!resultState) {
     return (
       <Card className="h-full">
@@ -157,6 +156,12 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
       </Card>
     );
   }
+
+  // Check if this is an "all" result with separate sections
+  const hasMultipleSections =
+    resultState.flashcardsText ||
+    resultState.summaryText ||
+    resultState.monologueText;
 
   return (
     <Card className="h-full">
@@ -189,15 +194,62 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
           <AudioPlayer audioSrc={resultState.audioFilePath} />
         )}
 
-        {resultState.resultText && resultState.success && (
-          <div className="mt-4 pt-4 border-t">
-            <h3 className="font-semibold mb-2 text-lg">Generated Content:</h3>
-            <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-800 rounded-md max-h-[60vh] overflow-y-auto">
-              <pre className="whitespace-pre-wrap font-sans text-sm">
-                {resultState.resultText}
-              </pre>
-            </div>
+        {hasMultipleSections && resultState.success ? (
+          <div className="mt-4 pt-4 border-t space-y-6">
+            {resultState.flashcardsText && (
+              <div className="space-y-2">
+                <h3 className="font-semibold text-lg flex items-center">
+                  <FileText className="mr-2 h-5 w-5" />
+                  Flashcards:
+                </h3>
+                <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-800 rounded-md max-h-[30vh] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap font-sans text-sm">
+                    {resultState.flashcardsText}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {resultState.summaryText && (
+              <div className="space-y-2">
+                <h3 className="font-semibold text-lg flex items-center">
+                  <FileText className="mr-2 h-5 w-5" />
+                  Summary:
+                </h3>
+                <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-800 rounded-md max-h-[30vh] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap font-sans text-sm">
+                    {resultState.summaryText}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {resultState.monologueText && (
+              <div className="space-y-2">
+                <h3 className="font-semibold text-lg flex items-center">
+                  <Volume2 className="mr-2 h-5 w-5" />
+                  Monologue:
+                </h3>
+                <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-800 rounded-md max-h-[30vh] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap font-sans text-sm">
+                    {resultState.monologueText}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
+        ) : (
+          resultState.resultText &&
+          resultState.success && (
+            <div className="mt-4 pt-4 border-t">
+              <h3 className="font-semibold mb-2 text-lg">Generated Content:</h3>
+              <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-800 rounded-md max-h-[60vh] overflow-y-auto">
+                <pre className="whitespace-pre-wrap font-sans text-sm">
+                  {resultState.resultText}
+                </pre>
+              </div>
+            </div>
+          )
         )}
       </CardContent>
     </Card>
@@ -207,7 +259,7 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
 // --- Main Upload Page Component ---
 export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [processingOption, setProcessingOption] = useState<string>("summary");
+  const [processingOption, setProcessingOption] = useState<string>("all");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const youtubeUrlInputRef = useRef<HTMLInputElement>(null);
@@ -286,42 +338,6 @@ export default function UploadPage() {
     setDisplayState(null);
   };
 
-  const renderProcessingOptions = (
-    currentOption: string,
-    setOption: (opt: string) => void
-  ) => (
-    // ... (Keep renderProcessingOptions as is - it looks good)
-    <div className="space-y-2">
-      <h3 className="font-medium">Processing Options</h3>
-      <div className="grid grid-cols-3 gap-2">
-        <Button
-          type="button"
-          variant={currentOption === "flashcards" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("flashcards")}
-        >
-          <span>Generate</span> <span className="font-medium">Flashcards</span>
-        </Button>
-        <Button
-          type="button"
-          variant={currentOption === "summary" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("summary")}
-        >
-          <span>Generate</span> <span className="font-medium">Summary</span>
-        </Button>
-        <Button
-          type="button"
-          variant={currentOption === "conversation" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("conversation")}
-        >
-          <span>Create</span> <span className="font-medium">Monologue</span>
-        </Button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="flex min-h-screen flex-col">
       {/* <DashboardHeader /> */}
@@ -348,7 +364,8 @@ export default function UploadPage() {
                       <CardTitle>Upload Document</CardTitle>
                       <CardDescription>
                         Upload {ALLOWED_FILE_EXTENSIONS_STR} (max{" "}
-                        {MAX_FILE_SIZE_MB}MB).
+                        {MAX_FILE_SIZE_MB}MB) to generate flashcards, summary,
+                        and monologue.
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
@@ -392,17 +409,13 @@ export default function UploadPage() {
                           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
                         </p>
                       )}
-                      {renderProcessingOptions(
-                        processingOption,
-                        setProcessingOption
-                      )}
                       <input
                         type="hidden"
                         name="processingOption"
-                        value={processingOption}
+                        value="all"
                       />
                       <SubmitButton
-                        text="Upload & Process File"
+                        text="Generate Flashcards, Summary & Monologue"
                         pendingText="Processing File..."
                       />
                     </CardContent>
@@ -417,8 +430,8 @@ export default function UploadPage() {
                     <CardHeader>
                       <CardTitle>Add YouTube Video</CardTitle>
                       <CardDescription>
-                        Paste a YouTube video link to generate learning
-                        materials.
+                        Paste a YouTube video link to generate flashcards,
+                        summary, and monologue.
                         <span className="block text-xs text-amber-700 mt-1">
                           Note: Processing may take longer. Success depends on
                           URL accessibility and transcript availability.
@@ -445,17 +458,13 @@ export default function UploadPage() {
                           Enter a valid YouTube video URL above.
                         </p>
                       </div>
-                      {renderProcessingOptions(
-                        processingOption,
-                        setProcessingOption
-                      )}
                       <input
                         type="hidden"
                         name="processingOption"
-                        value={processingOption}
+                        value="all"
                       />
                       <SubmitButton
-                        text="Process YouTube Video"
+                        text="Generate Flashcards, Summary & Monologue"
                         pendingText="Processing Video..."
                       />
                     </CardContent>
