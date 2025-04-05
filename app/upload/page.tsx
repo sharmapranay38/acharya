@@ -3,11 +3,15 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import { searchParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter, useSearchParams } from "next/navigation";
 
 // UI Components
 import { DashboardHeader } from "@/components/dashboard-header";
-import { DashboardShell } from "@/components/dashboard-shell";
+import { DashboardShell } from "@/components/ui/dashboard-shell";
 import {
   Card,
   CardContent,
@@ -51,11 +55,18 @@ const ALLOWED_FILE_EXTENSIONS_STR = "PDF, DOC, DOCX, TXT"; // For display text
 const ALLOWED_FILE_EXTENSIONS_ACCEPT = ".pdf,.doc,.docx,.txt"; // For input accept attribute
 
 // --- Helper Component for Submit Button ---
-function SubmitButton({ text = "Submit", pendingText = "Processing..." }) {
-  const { pending } = useFormStatus();
+function SubmitButton({ 
+  text = "Submit", 
+  pendingText = "Processing...",
+  isProcessing = false 
+}: { 
+  text?: string;
+  pendingText?: string;
+  isProcessing?: boolean;
+}) {
   return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending ? (
+    <Button type="submit" className="w-full" disabled={isProcessing}>
+      {isProcessing ? (
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {pendingText}
         </>
@@ -134,273 +145,212 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
 
 // --- Main Upload Page Component ---
 export default function UploadPage() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [processingOption, setProcessingOption] = useState<string>("summary");
+  const { userId } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("sessionId");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const youtubeUrlInputRef = useRef<HTMLInputElement>(null);
+  async function handleFileSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsProcessing(true);
+    setError(null);
 
-  const [fileState, fileFormAction] = useFormState<
-    ActionResult | null,
-    FormData
-  >(uploadAndProcessDocument, null);
-  const [youtubeState, youtubeFormAction] = useFormState<
-    ActionResult | null,
-    FormData
-  >(processYouTubeVideo, null);
-  const [displayState, setDisplayState] = useState<ActionResult | null>(null);
+    const formData = new FormData(event.currentTarget);
+    const file = formData.get("file") as File;
 
-  useEffect(() => {
-    if (fileState?.inputSource === "file") {
-      // Optional chaining for safety
-      setDisplayState(fileState);
-      if (fileState.success) {
-        setSelectedFile(null);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-      }
+    if (!file) {
+      setError("Please select a file");
+      setIsProcessing(false);
+      return;
     }
-  }, [fileState]);
 
-  useEffect(() => {
-    if (youtubeState?.inputSource === "youtube") {
-      // Optional chaining for safety
-      setDisplayState(youtubeState);
-      if (youtubeState.success && youtubeUrlInputRef.current) {
-        youtubeUrlInputRef.current.value = "";
-      }
+    if (!sessionId) {
+      setError("No session selected");
+      setIsProcessing(false);
+      return;
     }
-  }, [youtubeState]);
 
-  const handleBrowseClick = () => {
-    fileInputRef.current?.click();
-  };
+    try {
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("sessionId", sessionId);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        alert(`File size exceeds ${MAX_FILE_SIZE_MB}MB limit.`);
-        setSelectedFile(null);
-        event.target.value = ""; // Reset file input
-        return;
+      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/upload`, {
+        method: "POST",
+        body: uploadData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to upload file");
       }
-      // Client-side type check (supplementary to server-side)
-      // Checking file.type is generally more reliable than just extension
-      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-        // Check common edge cases like empty type for some OS/browser combos if needed
-        if (
-          !ALLOWED_FILE_EXTENSIONS_ACCEPT.split(",").some((ext) =>
-            file.name.toLowerCase().endsWith(ext)
-          )
-        ) {
-          alert(
-            `Unsupported file type. Allowed: ${ALLOWED_FILE_EXTENSIONS_STR}.`
-          );
-          setSelectedFile(null);
-          event.target.value = ""; // Reset file input
-          return;
-        }
+
+      // Process the file with Gemini
+      const processResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/process`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileId: data.fileId,
+          sessionId,
+          userId,
+        }),
+      });
+
+      const processData = await processResponse.json();
+
+      if (!processResponse.ok) {
+        throw new Error(processData.message || "Failed to process file");
       }
-      setSelectedFile(file);
-      setDisplayState(null);
-    } else {
-      setSelectedFile(null);
+
+      // Redirect to session page to see the generated content
+      router.push(`/sessions/${sessionId}`);
+    } catch (error) {
+      console.error("Error in handleFileSubmit:", error);
+      setError(error instanceof Error ? error.message : "Failed to process file");
+    } finally {
+      setIsProcessing(false);
     }
-  };
+  }
 
-  const handleYoutubeUrlChange = () => {
-    setDisplayState(null);
-  };
+  async function handleYoutubeSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsProcessing(true);
+    setError(null);
 
-  const renderProcessingOptions = (
-    currentOption: string,
-    setOption: (opt: string) => void
-  ) => (
-    // ... (Keep renderProcessingOptions as is - it looks good)
-    <div className="space-y-2">
-      <h3 className="font-medium">Processing Options</h3>
-      <div className="grid grid-cols-3 gap-2">
-        <Button
-          type="button"
-          variant={currentOption === "flashcards" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("flashcards")}
-        >
-          <span>Generate</span> <span className="font-medium">Flashcards</span>
-        </Button>
-        <Button
-          type="button"
-          variant={currentOption === "summary" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("summary")}
-        >
-          <span>Generate</span> <span className="font-medium">Summary</span>
-        </Button>
-        <Button
-          type="button"
-          variant={currentOption === "deepDive" ? "default" : "outline"}
-          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("deepDive")}
-        >
-          <span>Create</span>{" "}
-          <span className="font-medium">Deep Dive Convo</span>
-        </Button>
+    const formData = new FormData(event.currentTarget);
+    const url = formData.get("url") as string;
+
+    if (!url) {
+      setError("Please enter a YouTube URL");
+      setIsProcessing(false);
+      return;
+    }
+
+    if (!sessionId) {
+      setError("No session selected");
+      setIsProcessing(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/youtube`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          sessionId,
+          userId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to process YouTube video");
+      }
+
+      // Redirect to session page to see the generated content
+      router.push(`/sessions/${sessionId}`);
+    } catch (error) {
+      console.error("Error in handleYoutubeSubmit:", error);
+      setError(error instanceof Error ? error.message : "Failed to process YouTube video");
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  if (!sessionId) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>No Session Selected</CardTitle>
+            <CardDescription>
+              Please create a session first to upload content
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push("/sessions/new")}>
+              Create New Session
+            </Button>
+          </CardContent>
+        </Card>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* <DashboardHeader /> */}
-      <DashboardShell>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-3xl font-bold tracking-tight">
-            Upload & Process Content
-          </h2>
+      <div className="flex-1 space-y-4 p-8 pt-6">
+        <div className="flex items-center justify-between space-y-2">
+          <h2 className="text-3xl font-bold tracking-tight">Upload Content</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* --- Left Column: Input Tabs --- */}
-          <div className="md:col-span-1">
-            <Tabs defaultValue="file" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="file">Upload File</TabsTrigger>
-                <TabsTrigger value="youtube">YouTube Link</TabsTrigger>
-              </TabsList>
-
-              {/* File Upload Tab */}
-              <TabsContent value="file" className="pt-6">
-                <form action={fileFormAction} className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Upload Document</CardTitle>
-                      <CardDescription>
-                        Upload {ALLOWED_FILE_EXTENSIONS_STR} (max{" "}
-                        {MAX_FILE_SIZE_MB}MB).
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      {/* Consider the Label approach mentioned earlier if preferred */}
-                      <input
-                        type="file"
-                        name="file"
-                        id="file-input" // Added ID if using Label htmlFor
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        accept={ALLOWED_FILE_EXTENSIONS_ACCEPT}
-                        required
-                      />
-                      <div
-                        className="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6 sm:p-8 text-center hover:border-primary cursor-pointer transition-colors"
-                        onClick={handleBrowseClick} // Keep if not using Label wrapper
-                        // Add appropriate aria attributes if not using Label
-                      >
-                        <Upload className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground mb-3" />
-                        <div className="space-y-1">
-                          <h3 className="text-sm sm:text-base font-medium break-all px-2">
-                            {selectedFile
-                              ? selectedFile.name
-                              : "Click or drag file here"}
-                          </h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">
-                            Supports {ALLOWED_FILE_EXTENSIONS_STR} up to{" "}
-                            {MAX_FILE_SIZE_MB}MB
-                          </p>
-                          {!selectedFile && (
-                            <span className="mt-2 inline-flex items-center justify-center rounded-md text-xs sm:text-sm font-medium ... h-8 px-3">
-                              Browse Files
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {selectedFile && (
-                        <p className="text-xs sm:text-sm text-center text-green-600 font-medium">
-                          Selected: {selectedFile.name} (
-                          {(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-                        </p>
-                      )}
-                      {renderProcessingOptions(
-                        processingOption,
-                        setProcessingOption
-                      )}
-                      <input
-                        type="hidden"
-                        name="processingOption"
-                        value={processingOption}
-                      />
-                      <SubmitButton
-                        text="Upload & Process File"
-                        pendingText="Processing File..."
-                      />
-                    </CardContent>
-                  </Card>
-                </form>
-              </TabsContent>
-
-              {/* YouTube Tab */}
-              <TabsContent value="youtube" className="pt-6">
-                <form action={youtubeFormAction} className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Add YouTube Video</CardTitle>
-                      <CardDescription>
-                        Paste a YouTube video link to generate learning
-                        materials.
-                        <span className="block text-xs text-amber-700 mt-1">
-                          Note: Processing may take longer. Success depends on
-                          URL accessibility and transcript availability.
-                        </span>
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="space-y-1">
-                        <Label htmlFor="youtube-url">YouTube URL</Label>
-                        <Input
-                          ref={youtubeUrlInputRef}
-                          id="youtube-url"
-                          name="youtubeUrl"
-                          placeholder="https://www.youtube.com/watch?v=..." // Updated placeholder
-                          required
-                          type="url" // Use type="url" for basic browser validation
-                          onChange={handleYoutubeUrlChange}
-                        />
-                      </div>
-                      {/* Simplified placeholder visual */}
-                      <div className="flex items-center justify-center border-2 border-dashed rounded-lg p-6 text-center bg-gray-50 dark:bg-gray-900/50">
-                        <Youtube className="h-10 w-10 text-red-600 mr-4" />
-                        <p className="text-sm text-muted-foreground">
-                          Enter a valid YouTube video URL above.
-                        </p>
-                      </div>
-                      {renderProcessingOptions(
-                        processingOption,
-                        setProcessingOption
-                      )}
-                      <input
-                        type="hidden"
-                        name="processingOption"
-                        value={processingOption}
-                      />
-                      <SubmitButton
-                        text="Process YouTube Video"
-                        pendingText="Processing Video..."
-                      />
-                    </CardContent>
-                  </Card>
-                </form>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          {/* --- Right Column: Results Display --- */}
-          <div className="md:col-span-1">
-            <ResultsDisplay resultState={displayState} />
-          </div>
-        </div>{" "}
-        {/* End Grid */}
-      </DashboardShell>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload Document</CardTitle>
+              <CardDescription>
+                Upload a document to generate summaries, flashcards, and podcasts
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleFileSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="file">Document</Label>
+                  <Input
+                    id="file"
+                    name="file"
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    required
+                  />
+                </div>
+                {error && (
+                  <div className="text-red-500 text-sm">{error}</div>
+                )}
+                <Button type="submit" disabled={isProcessing}>
+                  {isProcessing ? "Processing..." : "Upload & Process"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>YouTube Video</CardTitle>
+              <CardDescription>
+                Enter a YouTube URL to generate summaries, flashcards, and podcasts
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleYoutubeSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="url">YouTube URL</Label>
+                  <Input
+                    id="url"
+                    name="url"
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    required
+                  />
+                </div>
+                {error && (
+                  <div className="text-red-500 text-sm">{error}</div>
+                )}
+                <Button type="submit" disabled={isProcessing}>
+                  {isProcessing ? "Processing..." : "Process Video"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
