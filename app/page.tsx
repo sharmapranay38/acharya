@@ -1,7 +1,7 @@
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Brain, BookOpen, FileText, Youtube, Zap } from "lucide-react"
-import { ThemeToggle } from "@/components/theme-toggle"
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Brain, BookOpen, FileText, Youtube, Zap } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Home() {
   return (
@@ -16,14 +16,23 @@ export default function Home() {
             <Link href="/" className="text-sm font-medium hover:text-primary">
               Home
             </Link>
-            <Link href="/features" className="text-sm font-medium hover:text-primary">
-              Features
+            <Link
+              href="/dashboard"
+              className="text-sm font-medium hover:text-primary"
+            >
+              Dashboard
             </Link>
-            <Link href="/pricing" className="text-sm font-medium hover:text-primary">
-              Pricing
+            <Link
+              href="/flashcards"
+              className="text-sm font-medium hover:text-primary"
+            >
+              Flashcard
             </Link>
-            <Link href="/about" className="text-sm font-medium hover:text-primary">
-              About
+            <Link
+              href="/summaries"
+              className="text-sm font-medium hover:text-primary"
+            >
+              Summaries
             </Link>
           </nav>
           <div className="flex items-center gap-4">
@@ -44,8 +53,9 @@ export default function Home() {
                     Transform Your Learning Experience
                   </h1>
                   <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                    Acharya uses AI to convert your course materials and videos into interactive learning content.
-                    Generate flashcards, summaries, podcasts, and more with just a few clicks.
+                    Acharya uses AI to convert your course materials and videos
+                    into interactive learning content. Generate flashcards,
+                    summaries, podcasts, and more with just a few clicks.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 min-[400px]:flex-row">
@@ -69,22 +79,30 @@ export default function Home() {
                       <div className="bg-background/80 backdrop-blur-sm p-4 rounded-lg shadow-lg border border-primary/20">
                         <FileText className="h-8 w-8 text-primary mb-2" />
                         <h3 className="font-semibold">Document Processing</h3>
-                        <p className="text-sm text-muted-foreground">Upload course materials and PDFs</p>
+                        <p className="text-sm text-muted-foreground">
+                          Upload course materials and PDFs
+                        </p>
                       </div>
                       <div className="bg-background/80 backdrop-blur-sm p-4 rounded-lg shadow-lg border border-primary/20">
                         <Youtube className="h-8 w-8 text-primary mb-2" />
                         <h3 className="font-semibold">Video Analysis</h3>
-                        <p className="text-sm text-muted-foreground">Extract knowledge from YouTube videos</p>
+                        <p className="text-sm text-muted-foreground">
+                          Extract knowledge from YouTube videos
+                        </p>
                       </div>
                       <div className="bg-background/80 backdrop-blur-sm p-4 rounded-lg shadow-lg border border-primary/20">
                         <BookOpen className="h-8 w-8 text-primary mb-2" />
                         <h3 className="font-semibold">Flashcards</h3>
-                        <p className="text-sm text-muted-foreground">Generate interactive study materials</p>
+                        <p className="text-sm text-muted-foreground">
+                          Generate interactive study materials
+                        </p>
                       </div>
                       <div className="bg-background/80 backdrop-blur-sm p-4 rounded-lg shadow-lg border border-primary/20">
                         <Brain className="h-8 w-8 text-primary mb-2" />
                         <h3 className="font-semibold">AI Summaries</h3>
-                        <p className="text-sm text-muted-foreground">Get concise content overviews</p>
+                        <p className="text-sm text-muted-foreground">
+                          Get concise content overviews
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -97,9 +115,12 @@ export default function Home() {
           <div className="container px-4 md:px-6">
             <div className="flex flex-col items-center justify-center space-y-4 text-center">
               <div className="space-y-2">
-                <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">How It Works</h2>
+                <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
+                  How It Works
+                </h2>
                 <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-                  Acharya makes learning more efficient and engaging with our AI-powered platform
+                  Acharya makes learning more efficient and engaging with our
+                  AI-powered platform
                 </p>
               </div>
             </div>
@@ -110,7 +131,9 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   <h3 className="text-xl font-bold">Upload Content</h3>
-                  <p className="text-muted-foreground">Upload your course documents or paste YouTube video links</p>
+                  <p className="text-muted-foreground">
+                    Upload your course documents or paste YouTube video links
+                  </p>
                 </div>
               </div>
               <div className="flex flex-col justify-center space-y-4 rounded-lg border bg-background p-6 shadow-sm">
@@ -120,7 +143,8 @@ export default function Home() {
                 <div className="space-y-2">
                   <h3 className="text-xl font-bold">AI Processing</h3>
                   <p className="text-muted-foreground">
-                    Our AI analyzes and extracts key information from your materials
+                    Our AI analyzes and extracts key information from your
+                    materials
                   </p>
                 </div>
               </div>
@@ -131,7 +155,8 @@ export default function Home() {
                 <div className="space-y-2">
                   <h3 className="text-xl font-bold">Learn Efficiently</h3>
                   <p className="text-muted-foreground">
-                    Access flashcards, summaries, podcasts, and more learning tools
+                    Access flashcards, summaries, podcasts, and more learning
+                    tools
                   </p>
                 </div>
               </div>
@@ -145,16 +170,21 @@ export default function Home() {
             © 2025 Acharya. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
-            <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground">
+            <Link
+              href="/terms"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
               Terms
             </Link>
-            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground">
+            <Link
+              href="/privacy"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
               Privacy
             </Link>
           </div>
         </div>
       </footer>
     </div>
-  )
+  );
 }
-
