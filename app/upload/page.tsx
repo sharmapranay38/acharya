@@ -3,9 +3,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
-import { searchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -33,6 +30,9 @@ import {
   Loader2,
   Terminal,
   Info,
+  Play,
+  Pause,
+  Volume2,
 } from "lucide-react";
 
 // Server Actions & Types
@@ -77,9 +77,73 @@ function SubmitButton({
   );
 }
 
+// --- Audio Player Component ---
+function AudioPlayer({ audioSrc }: { audioSrc: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  useEffect(() => {
+    const audioElement = audioRef.current;
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+    };
+
+    if (audioElement) {
+      audioElement.addEventListener("ended", handleEnded);
+    }
+
+    return () => {
+      if (audioElement) {
+        audioElement.removeEventListener("ended", handleEnded);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="mt-4 pt-4 border-t">
+      <h3 className="font-semibold mb-2 text-lg flex items-center">
+        <Volume2 className="mr-2 h-5 w-5" />
+        Listen to the Monologue:
+      </h3>
+      <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-800 p-4 rounded-md">
+        <Button
+          size="icon"
+          variant="outline"
+          onClick={togglePlay}
+          className="h-10 w-10 rounded-full"
+        >
+          {isPlaying ? (
+            <Pause className="h-5 w-5" />
+          ) : (
+            <Play className="h-5 w-5" />
+          )}
+        </Button>
+        <div className="flex-1">
+          <audio ref={audioRef} src={audioSrc} />
+          <div className="text-sm font-medium">Generated Monologue</div>
+          <div className="text-xs text-muted-foreground">
+            Click to {isPlaying ? "pause" : "play"} the monologue
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Helper Component for Displaying Results ---
 function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
-  // ... (Keep ResultsDisplay component as is - it looks good)
   if (!resultState) {
     return (
       <Card className="h-full">
@@ -128,6 +192,10 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
           )}
         </Alert>
 
+        {resultState.audioFilePath && resultState.success && (
+          <AudioPlayer audioSrc={resultState.audioFilePath} />
+        )}
+
         {resultState.resultText && resultState.success && (
           <div className="mt-4 pt-4 border-t">
             <h3 className="font-semibold mb-2 text-lg">Generated Content:</h3>
@@ -143,6 +211,47 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
   );
 }
 
+// Processing options selector component
+function ProcessingOptions({ 
+  currentOption, 
+  setOption 
+}: { 
+  currentOption: string, 
+  setOption: (opt: string) => void 
+}) {
+  return (
+    <div className="space-y-2">
+      <h3 className="font-medium">Processing Options</h3>
+      <div className="grid grid-cols-3 gap-2">
+        <Button
+          type="button"
+          variant={currentOption === "flashcards" ? "default" : "outline"}
+          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
+          onClick={() => setOption("flashcards")}
+        >
+          <span>Generate</span> <span className="font-medium">Flashcards</span>
+        </Button>
+        <Button
+          type="button"
+          variant={currentOption === "summary" ? "default" : "outline"}
+          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
+          onClick={() => setOption("summary")}
+        >
+          <span>Generate</span> <span className="font-medium">Summary</span>
+        </Button>
+        <Button
+          type="button"
+          variant={currentOption === "conversation" ? "default" : "outline"}
+          className="flex flex-col h-auto py-3 text-xs sm:text-sm"
+          onClick={() => setOption("conversation")}
+        >
+          <span>Create</span> <span className="font-medium">Monologue</span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Upload Page Component ---
 export default function UploadPage() {
   const { userId } = useAuth();
@@ -151,6 +260,8 @@ export default function UploadPage() {
   const sessionId = searchParams.get("sessionId");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [processingOption, setProcessingOption] = useState<string>("summary");
+  const [displayState, setDisplayState] = useState<ActionResult | null>(null);
 
   async function handleFileSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -173,13 +284,13 @@ export default function UploadPage() {
     }
 
     try {
-      const uploadData = new FormData();
-      uploadData.append("file", file);
-      uploadData.append("sessionId", sessionId);
+      // Add processing option to formData
+      formData.append("processingOption", processingOption);
+      formData.append("sessionId", sessionId);
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/upload`, {
         method: "POST",
-        body: uploadData,
+        body: formData,
       });
 
       const data = await response.json();
@@ -188,30 +299,17 @@ export default function UploadPage() {
         throw new Error(data.message || "Failed to upload file");
       }
 
-      // Process the file with Gemini
-      const processResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/process`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fileId: data.fileId,
-          sessionId,
-          userId,
-        }),
-      });
-
-      const processData = await processResponse.json();
-
-      if (!processResponse.ok) {
-        throw new Error(processData.message || "Failed to process file");
+      // If we're staying on this page, update the display state
+      setDisplayState(data);
+      
+      // If we're redirecting, navigate to the session page
+      if (data.success) {
+        router.push(`/sessions/${sessionId}`);
       }
-
-      // Redirect to session page to see the generated content
-      router.push(`/sessions/${sessionId}`);
     } catch (error) {
       console.error("Error in handleFileSubmit:", error);
       setError(error instanceof Error ? error.message : "Failed to process file");
+      setDisplayState(null);
     } finally {
       setIsProcessing(false);
     }
@@ -238,6 +336,10 @@ export default function UploadPage() {
     }
 
     try {
+      // Add processing option to formData
+      formData.append("processingOption", processingOption);
+      formData.append("sessionId", sessionId);
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/youtube`, {
         method: "POST",
         headers: {
@@ -247,6 +349,7 @@ export default function UploadPage() {
           url,
           sessionId,
           userId,
+          processingOption,
         }),
       });
 
@@ -256,15 +359,26 @@ export default function UploadPage() {
         throw new Error(data.message || "Failed to process YouTube video");
       }
 
-      // Redirect to session page to see the generated content
-      router.push(`/sessions/${sessionId}`);
+      // If we're staying on this page, update the display state
+      setDisplayState(data);
+      
+      // If we're redirecting, navigate to the session page
+      if (data.success) {
+        router.push(`/sessions/${sessionId}`);
+      }
     } catch (error) {
       console.error("Error in handleYoutubeSubmit:", error);
       setError(error instanceof Error ? error.message : "Failed to process YouTube video");
+      setDisplayState(null);
     } finally {
       setIsProcessing(false);
     }
   }
+
+  // Handle URL input change - reset display state
+  const handleYoutubeUrlChange = () => {
+    setDisplayState(null);
+  };
 
   if (!sessionId) {
     return (
@@ -292,64 +406,110 @@ export default function UploadPage() {
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">Upload Content</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Document</CardTitle>
-              <CardDescription>
-                Upload a document to generate summaries, flashcards, and podcasts
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleFileSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="file">Document</Label>
-                  <Input
-                    id="file"
-                    name="file"
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt"
-                    required
-                  />
-                </div>
-                {error && (
-                  <div className="text-red-500 text-sm">{error}</div>
-                )}
-                <Button type="submit" disabled={isProcessing}>
-                  {isProcessing ? "Processing..." : "Upload & Process"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>YouTube Video</CardTitle>
-              <CardDescription>
-                Enter a YouTube URL to generate summaries, flashcards, and podcasts
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleYoutubeSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="url">YouTube URL</Label>
-                  <Input
-                    id="url"
-                    name="url"
-                    type="url"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    required
-                  />
-                </div>
-                {error && (
-                  <div className="text-red-500 text-sm">{error}</div>
-                )}
-                <Button type="submit" disabled={isProcessing}>
-                  {isProcessing ? "Processing..." : "Process Video"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+        
+        <Tabs defaultValue="document">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="document" className="flex items-center">
+              <FileText className="mr-2 h-4 w-4" />
+              Document Upload
+            </TabsTrigger>
+            <TabsTrigger value="youtube" className="flex items-center">
+              <Youtube className="mr-2 h-4 w-4" />
+              YouTube Video
+            </TabsTrigger>
+          </TabsList>
+          
+          <div className="grid gap-6 md:grid-cols-2 mt-6">
+            <TabsContent value="document" className="m-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Upload Document</CardTitle>
+                  <CardDescription>
+                    Upload a document to generate summaries, flashcards, or audio monologues.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleFileSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="file">Document</Label>
+                      <Input
+                        id="file"
+                        name="file"
+                        type="file"
+                        accept={ALLOWED_FILE_EXTENSIONS_ACCEPT}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Supported formats: {ALLOWED_FILE_EXTENSIONS_STR}. Max size: {MAX_FILE_SIZE_MB}MB
+                      </p>
+                    </div>
+                    
+                    <ProcessingOptions 
+                      currentOption={processingOption}
+                      setOption={setProcessingOption}
+                    />
+                    
+                    {error && (
+                      <div className="text-sm text-red-500">{error}</div>
+                    )}
+                    
+                    <SubmitButton
+                      text="Upload & Process Document"
+                      pendingText="Processing Document..."
+                      isProcessing={isProcessing}
+                    />
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="youtube" className="m-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Process YouTube Video</CardTitle>
+                  <CardDescription>
+                    Enter a YouTube URL to generate summaries, flashcards, or audio monologues.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleYoutubeSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="url">YouTube URL</Label>
+                      <Input
+                        id="url"
+                        name="url"
+                        type="url"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        onChange={handleYoutubeUrlChange}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Enter a valid YouTube video URL
+                      </p>
+                    </div>
+                    
+                    <ProcessingOptions 
+                      currentOption={processingOption}
+                      setOption={setProcessingOption}
+                    />
+                    
+                    {error && (
+                      <div className="text-sm text-red-500">{error}</div>
+                    )}
+                    
+                    <SubmitButton
+                      text="Process YouTube Video"
+                      pendingText="Processing Video..."
+                      isProcessing={isProcessing}
+                    />
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <ResultsDisplay resultState={displayState} />
+          </div>
+        </Tabs>
       </div>
     </div>
   );
