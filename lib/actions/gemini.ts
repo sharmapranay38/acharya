@@ -16,7 +16,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { documents, sessions, generatedContent } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
+import { nanoid } from "nanoid";
 
 // --- Define structure for action results (shared by both actions) ---
 export interface ActionResult {
@@ -29,6 +30,7 @@ export interface ActionResult {
   flashcardsText?: string; // To hold generated flashcards
   summaryText?: string; // To hold generated summary
   monologueText?: string; // To hold generated monologue
+  sessionId?: string; // To track the session ID for saved content
 }
 
 // --- Helper function to determine the prompt based on the option ---
@@ -214,6 +216,145 @@ function extractContentSections(text: string) {
   return { flashcards, summary, monologue };
 }
 
+// --- Function to store content in database ---
+async function storeGeneratedContent(
+  contentType: "flashcards" | "summary" | "monologue" | "all",
+  content: {
+    flashcards?: string;
+    summary?: string;
+    monologue?: string;
+    audioPath?: string;
+  },
+  sourceInfo: {
+    sourceType: "file" | "youtube";
+    sourceName?: string; // Filename or YouTube URL
+  }
+): Promise<string | null> {
+  try {
+    // Get current user from auth
+    const authResult = await auth();
+    if (!authResult || !authResult.userId) {
+      console.error("No authorized user found");
+      return null;
+    }
+
+    const userId = authResult.userId;
+
+    // Create a descriptive title based on source
+    const title = sourceInfo.sourceName
+      ? `${sourceInfo.sourceType === "file" ? "File" : "YouTube"}: ${
+          sourceInfo.sourceName
+        }`
+      : `Content from ${sourceInfo.sourceType}`;
+
+    // Use direct SQL query for session creation using the Drizzle SQL builder
+    const sessionValues = {
+      userId: userId,
+      title: title,
+      description: `Generated ${
+        contentType === "all"
+          ? "flashcards, summary, and monologue"
+          : contentType
+      } from ${sourceInfo.sourceType}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await db.insert(sessions).values(sessionValues);
+
+    // Get the last inserted ID using MySQL-specific query
+    const result = await db.execute(`SELECT LAST_INSERT_ID() as id`);
+    // The result format may vary, so we use type assertion for now
+    const sessionId = parseInt((result as any)[0][0].id);
+
+    if (!sessionId) {
+      throw new Error("Failed to get session ID");
+    }
+
+    // Create a document entry using the Drizzle SQL builder
+    const originalContent =
+      content.summary || content.monologue || content.flashcards || "";
+    const documentValues = {
+      userId: userId,
+      title: title,
+      content: originalContent.substring(0, 1000), // Limit the content length
+      fileType: sourceInfo.sourceType === "file" ? "text" : "youtube",
+      fileUrl:
+        sourceInfo.sourceType === "youtube" ? sourceInfo.sourceName : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await db.insert(documents).values(documentValues);
+
+    // Get the document ID
+    const docResult = await db.execute(`SELECT LAST_INSERT_ID() as id`);
+    const documentId = parseInt((docResult as any)[0][0].id);
+
+    if (!documentId) {
+      throw new Error("Failed to get document ID");
+    }
+
+    // Store each content type in the generated_content table
+    if (contentType === "all" || contentType === "flashcards") {
+      if (content.flashcards) {
+        const flashcardsValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "flashcards",
+          content: JSON.stringify(content.flashcards),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(flashcardsValues);
+      }
+    }
+
+    if (contentType === "all" || contentType === "summary") {
+      if (content.summary) {
+        const summaryValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "summary",
+          content: JSON.stringify(content.summary),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(summaryValues);
+      }
+    }
+
+    if (contentType === "all" || contentType === "monologue") {
+      if (content.monologue) {
+        const contentObj = content.audioPath
+          ? { text: content.monologue, audioPath: content.audioPath }
+          : content.monologue;
+
+        const monologueValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "monologue",
+          content: JSON.stringify(contentObj),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(monologueValues);
+      }
+    }
+
+    return sessionId.toString();
+  } catch (error) {
+    console.error("Error storing content in database:", error);
+    return null;
+  }
+}
+
 // --- Server Action for File Uploads ---
 export async function uploadAndProcessDocument(
   prevState: ActionResult | null,
@@ -290,8 +431,30 @@ export async function uploadAndProcessDocument(
       if (processingOption === "conversation") {
         console.log("Generating audio for conversation...");
         audioFilePath = await generateConversationAudio(generatedText);
+        monologueText = generatedText;
+      } else if (processingOption === "flashcards") {
+        flashcardsText = generatedText;
+      } else if (processingOption === "summary") {
+        summaryText = generatedText;
       }
     }
+
+    // Store the content in the database
+    let sessionId = null;
+
+    sessionId = await storeGeneratedContent(
+      processingOption as any,
+      {
+        flashcards: flashcardsText,
+        summary: summaryText,
+        monologue: monologueText,
+        audioPath: audioFilePath || undefined,
+      },
+      {
+        sourceType: "file",
+        sourceName: file.name,
+      }
+    );
 
     // Success message remains generic but accurate
     return {
@@ -300,13 +463,16 @@ export async function uploadAndProcessDocument(
         processingOption === "all"
           ? "flashcards, summary & monologue"
           : processingOption || "summary"
-      }.${audioFilePath ? " Audio generated." : ""}`,
+      }.${audioFilePath ? " Audio generated." : ""} ${
+        sessionId ? " Content saved to your account." : ""
+      }`,
       resultText: generatedText,
       inputSource: "file",
       audioFilePath: audioFilePath || undefined,
       flashcardsText: flashcardsText,
       summaryText: summaryText,
       monologueText: monologueText,
+      sessionId: sessionId || undefined,
     };
   } catch (error: any) {
     console.error("Error processing file with Gemini:", error);
@@ -407,8 +573,30 @@ export async function processYouTubeVideo(
       if (processingOption === "conversation") {
         console.log("Generating audio for conversation...");
         audioFilePath = await generateConversationAudio(generatedText);
+        monologueText = generatedText;
+      } else if (processingOption === "flashcards") {
+        flashcardsText = generatedText;
+      } else if (processingOption === "summary") {
+        summaryText = generatedText;
       }
     }
+
+    // Store the content in the database
+    let sessionId = null;
+
+    sessionId = await storeGeneratedContent(
+      processingOption as any,
+      {
+        flashcards: flashcardsText,
+        summary: summaryText,
+        monologue: monologueText,
+        audioPath: audioFilePath || undefined,
+      },
+      {
+        sourceType: "youtube",
+        sourceName: youtubeUrl,
+      }
+    );
 
     return {
       success: true,
@@ -416,13 +604,16 @@ export async function processYouTubeVideo(
         processingOption === "all"
           ? "flashcards, summary & monologue"
           : processingOption || "summary"
-      }.${audioFilePath ? " Audio generated." : ""}`,
+      }.${audioFilePath ? " Audio generated." : ""} ${
+        sessionId ? " Content saved to your account." : ""
+      }`,
       resultText: generatedText,
       inputSource: "youtube",
       audioFilePath: audioFilePath || undefined,
       flashcardsText: flashcardsText,
       summaryText: summaryText,
       monologueText: monologueText,
+      sessionId: sessionId || undefined,
     };
   } catch (error: any) {
     console.error("Error processing YouTube URL with Gemini:", error);
