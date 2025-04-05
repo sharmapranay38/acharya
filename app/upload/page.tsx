@@ -29,6 +29,9 @@ import {
   Loader2,
   Terminal,
   Info,
+  Play,
+  Pause,
+  Volume2,
 } from "lucide-react";
 
 // Server Actions & Types
@@ -63,6 +66,71 @@ function SubmitButton({ text = "Submit", pendingText = "Processing..." }) {
         text
       )}
     </Button>
+  );
+}
+
+// --- Audio Player Component ---
+function AudioPlayer({ audioSrc }: { audioSrc: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  useEffect(() => {
+    const audioElement = audioRef.current;
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+    };
+
+    if (audioElement) {
+      audioElement.addEventListener("ended", handleEnded);
+    }
+
+    return () => {
+      if (audioElement) {
+        audioElement.removeEventListener("ended", handleEnded);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="mt-4 pt-4 border-t">
+      <h3 className="font-semibold mb-2 text-lg flex items-center">
+        <Volume2 className="mr-2 h-5 w-5" />
+        Listen to the Monologue:
+      </h3>
+      <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-800 p-4 rounded-md">
+        <Button
+          size="icon"
+          variant="outline"
+          onClick={togglePlay}
+          className="h-10 w-10 rounded-full"
+        >
+          {isPlaying ? (
+            <Pause className="h-5 w-5" />
+          ) : (
+            <Play className="h-5 w-5" />
+          )}
+        </Button>
+        <div className="flex-1">
+          <audio ref={audioRef} src={audioSrc} />
+          <div className="text-sm font-medium">Generated Monologue</div>
+          <div className="text-xs text-muted-foreground">
+            Click to {isPlaying ? "pause" : "play"} the monologue
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -116,6 +184,10 @@ function ResultsDisplay({ resultState }: { resultState: ActionResult | null }) {
             </p>
           )}
         </Alert>
+
+        {resultState.audioFilePath && resultState.success && (
+          <AudioPlayer audioSrc={resultState.audioFilePath} />
+        )}
 
         {resultState.resultText && resultState.success && (
           <div className="mt-4 pt-4 border-t">
@@ -240,12 +312,11 @@ export default function UploadPage() {
         </Button>
         <Button
           type="button"
-          variant={currentOption === "deepDive" ? "default" : "outline"}
+          variant={currentOption === "conversation" ? "default" : "outline"}
           className="flex flex-col h-auto py-3 text-xs sm:text-sm"
-          onClick={() => setOption("deepDive")}
+          onClick={() => setOption("conversation")}
         >
-          <span>Create</span>{" "}
-          <span className="font-medium">Deep Dive Convo</span>
+          <span>Create</span> <span className="font-medium">Monologue</span>
         </Button>
       </div>
     </div>
