@@ -1,5 +1,7 @@
+// app/api/sessions/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server"; // Needed for GET
+import { auth } from "@clerk/nextjs/server"; // Needed for GET handler (and potentially POST if you validate server-side)
 import { db } from "@/db"; // Your Drizzle db instance
 import { sessions } from "@/db/schema"; // Your sessions table schema
 import { eq, desc } from "drizzle-orm"; // Drizzle functions
@@ -8,12 +10,19 @@ import { eq, desc } from "drizzle-orm"; // Drizzle functions
 export async function POST(request: NextRequest) {
   try {
     // 1. Parse Request Body
+    // Note: You get userId from the body here. Ensure this matches how you send it from the client.
+    // Alternatively, you could use `auth()` here too for server-side validation.
     const { userId, title, description } = await request.json();
 
     // 2. Validate Input
     if (!userId) {
+      // Consider using `auth()` here instead to get the definitive userId server-side
       return NextResponse.json(
-        { success: false, message: "User ID is required" },
+        {
+          success: false,
+          message:
+            "User ID is required in request body (or use server-side auth)",
+        },
         { status: 400 }
       );
     }
@@ -24,69 +33,98 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("Creating session with data:", { userId, title, description });
+    console.log("Attempting to create session with data:", {
+      userId,
+      title,
+      description,
+    });
 
-    // 3. Insert into Database (without .returning())
-    const insertResult = await db
-      .insert(sessions)
-      .values({
-        userId,
-        title,
-        description: description || "", // Use provided description or default to empty string
-      });
+    // 3. Insert into Database
+    const insertResult = await db.insert(sessions).values({
+      userId, // Ensure this userId is validated/trusted
+      title,
+      description: description || "", // Use provided description or default to empty string
+    });
+
+    // --- Log the raw insert result ---
+    // <<< ADDED DEBUG LOG >>>
+    console.log(
+      "Raw insertResult from db.insert:",
+      JSON.stringify(insertResult, null, 2)
+    );
 
     // 4. Get the ID of the inserted row
-    // Drizzle's MySQL drivers might return the ID differently. Check your driver's docs.
-    // Common patterns include insertResult.insertId or insertResult[0].insertId
-    // Using optional chaining and nullish coalescing for robustness:
+    // Primary focus for MySQL is insertId
     const insertedId = insertResult?.insertId ?? insertResult?.[0]?.insertId;
 
-    // 5. Verify ID and Fetch the newly created session
-    if (!insertedId) {
-      // This case indicates an issue with the insert or how the ID is returned
-      console.error("Insert might have failed or insertId was not found in the result:", insertResult);
+    // --- Log the extracted ID ---
+    // <<< ADDED DEBUG LOG >>>
+    console.log("Extracted insertedId:", insertedId);
+
+    // 5. Verify ID (Check for 0, null, or undefined which indicate issues)
+    if (insertedId === undefined || insertedId === null || insertedId === 0) {
+      console.error(
+        "Insert might have failed or insertId was not found/valid in the result:",
+        insertResult
+      );
+      // Return 500 as we expect a valid ID after insert succeeds
       return NextResponse.json(
-        { success: false, message: "Failed to create session or retrieve its ID" },
+        {
+          success: false,
+          message: "Failed to create session or retrieve its valid ID",
+        },
         { status: 500 }
       );
     }
 
-    console.log("Session insertion successful. Inserted ID:", insertedId);
+    console.log(
+      "Session insertion successful. Retrieved Inserted ID:",
+      insertedId
+    );
 
-    // Fetch the complete session object using the obtained ID
+    // 6. Fetch the newly created session object using the obtained ID
     const [newSession] = await db
-        .select()
-        .from(sessions)
-        // IMPORTANT: Replace 'sessions.id' below if your primary key column
-        // in the 'sessions' table has a different name (e.g., sessions.sessionId)
-        .where(eq(sessions.id, insertedId))
-        .limit(1); // Ensure only one record is fetched
+      .select()
+      .from(sessions)
+      // <<< VERIFY THIS COLUMN NAME >>> Ensure 'sessions.id' matches your schema's primary key column name
+      .where(eq(sessions.id, insertedId))
+      .limit(1); // Ensure only one record is fetched
 
-    // 6. Handle Fetch Result
+    // 7. Handle Fetch Result
     if (!newSession) {
-         // This is unlikely if the insert succeeded but handle it just in case
-         console.error("Failed to fetch newly created session with ID:", insertedId);
-         // Return success=true because the insert worked, but indicate the fetch issue
-         return NextResponse.json({
-            success: true,
-            message: "Session created but could not fetch details immediately",
-            insertedId: insertedId // Optionally return the ID
-        });
+      // This is unlikely if the insert succeeded and ID is valid, but handle it.
+      console.error(
+        "Failed to fetch newly created session with ID:",
+        insertedId
+      );
+      // Consider if this scenario should truly be success: true. Arguably, the operation isn't fully complete.
+      // Returning 201 is okay as the resource *was* created.
+      return NextResponse.json(
+        {
+          success: true, // Or maybe false? Define desired behavior.
+          message: "Session created but could not fetch details immediately",
+          insertedId: insertedId,
+        },
+        { status: 201 }
+      ); // 201 Created status code is appropriate
     }
 
     console.log("Session created and fetched successfully:", newSession);
 
-    // 7. Return Success Response
-    return NextResponse.json({ success: true, session: newSession });
-
+    // 8. Return Success Response
+    return NextResponse.json(
+      { success: true, session: newSession },
+      { status: 201 }
+    ); // Use 201 Created status
   } catch (error) {
-    // 8. Handle Generic Errors
-    console.error("Error creating session:", error);
+    // 9. Handle Generic Errors
+    console.error("Error in POST /api/sessions:", error); // Log the full caught error
     return NextResponse.json(
       {
         success: false,
         message: "Error creating session",
-        error: error instanceof Error ? error.message : "Unknown error",
+        // Provide error details in development, potentially mask in production
+        error: error instanceof Error ? error.message : "Unknown server error",
       },
       { status: 500 }
     );
@@ -117,11 +155,15 @@ export async function GET(request: NextRequest) {
       .where(eq(sessions.userId, userId)) // Where userId matches the authenticated user
       .orderBy(desc(sessions.createdAt)); // Order by creation date, newest first
 
-    console.log("Found sessions:", userSessions);
+    console.log(
+      "Found sessions for user:",
+      userId,
+      "Count:",
+      userSessions.length
+    );
 
     // 3. Return Success Response
     return NextResponse.json({ success: true, sessions: userSessions });
-
   } catch (error) {
     // 4. Handle Generic Errors
     console.error("Error fetching sessions:", error);
