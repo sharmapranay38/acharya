@@ -39,17 +39,20 @@ export default function NewSessionPage() {
     try {
       console.log("Creating session with data:", { title, description });
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/sessions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          title, 
-          description,
-          userId 
-        }),
-      });
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_APP_URL}/api/sessions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title,
+            description,
+            userId,
+          }),
+        }
+      );
 
       const data = await response.json();
 
@@ -61,11 +64,13 @@ export default function NewSessionPage() {
       console.log("Session created successfully:", data);
 
       if (data.success) {
-        router.push(`/upload?sessionId=${data.session.id}`);
+        router.push(`/upload`);
       }
     } catch (error) {
       console.error("Error in handleSubmit:", error);
-      setError(error instanceof Error ? error.message : "Failed to create session");
+      setError(
+        error instanceof Error ? error.message : "Failed to create session"
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -79,7 +84,9 @@ export default function NewSessionPage() {
     <div className="flex min-h-screen flex-col">
       <div className="flex-1 space-y-4 p-8 pt-6">
         <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Create New Session</h2>
+          <h2 className="text-3xl font-bold tracking-tight">
+            Create New Session
+          </h2>
         </div>
         <Card>
           <CardHeader>
@@ -108,9 +115,7 @@ export default function NewSessionPage() {
                   className="min-h-[100px]"
                 />
               </div>
-              {error && (
-                <div className="text-red-500 text-sm">{error}</div>
-              )}
+              {error && <div className="text-red-500 text-sm">{error}</div>}
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creating..." : "Create Session"}
               </Button>
@@ -120,4 +125,4 @@ export default function NewSessionPage() {
       </div>
     </div>
   );
-} 
+}

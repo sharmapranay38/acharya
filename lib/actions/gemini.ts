@@ -15,8 +15,9 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { documents, sessions, generated_content } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { documents, sessions, generatedContent } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
+import { nanoid } from "nanoid";
 
 // --- Define structure for action results (shared by both actions) ---
 export interface ActionResult {
@@ -26,6 +27,10 @@ export interface ActionResult {
   error?: string;
   inputSource?: "file" | "youtube"; // Optional: Track which action ran
   audioFilePath?: string; // Path to the generated audio file for conversations
+  flashcardsText?: string; // To hold generated flashcards
+  summaryText?: string; // To hold generated summary
+  monologueText?: string; // To hold generated monologue
+  sessionId?: string; // To track the session ID for saved content
 }
 
 // --- Helper function to determine the prompt based on the option ---
@@ -46,6 +51,13 @@ function getPromptForOption(
       // Updated to request a single-speaker monologue of 1800-2000 characters
       return `Create a comprehensive spoken monologue by a single speaker (named Alex) discussing the key points from ${contentDesc}. The monologue should be between 1800-2000 characters (aim for close to 2000 but do not exceed it). Make it sound natural and conversational, as if Alex is presenting a podcast episode discussing the content. Structure the response simply as "Alex: [monologue content]" without additional formatting.`;
     // --- END MODIFICATION ---
+    case "all":
+      return `Process ${contentDesc} and provide: 
+      1. FLASHCARDS: Generate a set of concise flashcards (question/answer format) covering the key points.
+      2. SUMMARY: Provide a detailed summary highlighting the main arguments, topics, and conclusions.
+      3. MONOLOGUE: Create a comprehensive spoken monologue by a single speaker (named Alex) discussing the key points. The monologue should be between 1800-2000 characters (aim for close to 2000 but do not exceed it). Make it sound natural and conversational, as if Alex is presenting a podcast episode.
+      
+      Format your response with clear headings (FLASHCARDS, SUMMARY, MONOLOGUE) separating each section.`;
     default: // Default or if option is missing
       return `Summarize the key information in ${contentDesc}:`;
   }
@@ -165,45 +177,182 @@ async function generateConversationAudio(
   }
 }
 
-// Helper functions for content generation
-async function generateFlashcards(content: string): Promise<string> {
-  // Implement flashcard generation with Gemini
-  const model = getGeminiModel();
-  const prompt = getPromptForOption("flashcards", "document");
-  const result = await model.generateContent(prompt + "\n\n" + content);
-  return result.response.text();
+// Helper function to extract content from all-in-one response
+function extractContentSections(text: string) {
+  // Initialize with empty values
+  let flashcards = "";
+  let summary = "";
+  let monologue = "";
+
+  // Extract flashcards section
+  const flashcardsMatch = text.match(
+    /FLASHCARDS:?([\s\S]*?)(?=SUMMARY:|MONOLOGUE:|$)/i
+  );
+  if (flashcardsMatch && flashcardsMatch[1]) {
+    flashcards = flashcardsMatch[1].trim();
+  }
+
+  // Extract summary section
+  const summaryMatch = text.match(
+    /SUMMARY:?([\s\S]*?)(?=FLASHCARDS:|MONOLOGUE:|$)/i
+  );
+  if (summaryMatch && summaryMatch[1]) {
+    summary = summaryMatch[1].trim();
+  }
+
+  // Extract monologue section (might contain "Alex:" prefix)
+  const monologueMatch = text.match(
+    /MONOLOGUE:?([\s\S]*?)(?=FLASHCARDS:|SUMMARY:|$)/i
+  );
+  if (monologueMatch && monologueMatch[1]) {
+    monologue = monologueMatch[1].trim();
+    // If monologue contains "Alex:" prefix, keep only what follows
+    const alexMatch = monologue.match(/Alex:?([\s\S]*)/i);
+    if (alexMatch && alexMatch[1]) {
+      monologue = alexMatch[1].trim();
+    }
+  }
+
+  return { flashcards, summary, monologue };
 }
 
-async function generateSummary(content: string): Promise<string> {
-  // Implement summary generation with Gemini
-  const model = getGeminiModel();
-  const prompt = getPromptForOption("summary", "document");
-  const result = await model.generateContent(prompt + "\n\n" + content);
-  return result.response.text();
-}
+// --- Function to store content in database ---
+async function storeGeneratedContent(
+  contentType: "flashcards" | "summary" | "monologue" | "all",
+  content: {
+    flashcards?: string;
+    summary?: string;
+    monologue?: string;
+    audioPath?: string;
+  },
+  sourceInfo: {
+    sourceType: "file" | "youtube";
+    sourceName?: string; // Filename or YouTube URL
+  }
+): Promise<string | null> {
+  try {
+    // Get current user from auth
+    const authResult = await auth();
+    if (!authResult || !authResult.userId) {
+      console.error("No authorized user found");
+      return null;
+    }
 
-async function startConversation(content: string): Promise<string> {
-  // Implement conversation generation with Gemini
-  const model = getGeminiModel();
-  const prompt = getPromptForOption("conversation", "document");
-  const result = await model.generateContent(prompt + "\n\n" + content);
-  return result.response.text();
-}
+    const userId = authResult.userId;
 
-// Missing functions for content processing from the original file
-async function uploadAndProcessDocument(file: File): Promise<string> {
-  // Implement document content extraction
-  // This could be parsing a PDF, extracting text from a document, etc.
-  // For now, let's just return a placeholder
-  const text = await file.text();
-  return text;
-}
+    // Create a descriptive title based on source
+    const title = sourceInfo.sourceName
+      ? `${sourceInfo.sourceType === "file" ? "File" : "YouTube"}: ${
+          sourceInfo.sourceName
+        }`
+      : `Content from ${sourceInfo.sourceType}`;
 
-async function processYouTubeVideo(url: string): Promise<string> {
-  // Implement YouTube video processing
-  // This could be fetching transcripts, descriptions, etc.
-  // For now, let's just return a placeholder
-  return `Content extracted from ${url}`;
+    // Use direct SQL query for session creation using the Drizzle SQL builder
+    const sessionValues = {
+      userId: userId,
+      title: title,
+      description: `Generated ${
+        contentType === "all"
+          ? "flashcards, summary, and monologue"
+          : contentType
+      } from ${sourceInfo.sourceType}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await db.insert(sessions).values(sessionValues);
+
+    // Get the last inserted ID using MySQL-specific query
+    const result = await db.execute(`SELECT LAST_INSERT_ID() as id`);
+    // The result format may vary, so we use type assertion for now
+    const sessionId = parseInt((result as any)[0][0].id);
+
+    if (!sessionId) {
+      throw new Error("Failed to get session ID");
+    }
+
+    // Create a document entry using the Drizzle SQL builder
+    const originalContent =
+      content.summary || content.monologue || content.flashcards || "";
+    const documentValues = {
+      userId: userId,
+      title: title,
+      content: originalContent.substring(0, 1000), // Limit the content length
+      fileType: sourceInfo.sourceType === "file" ? "text" : "youtube",
+      fileUrl:
+        sourceInfo.sourceType === "youtube" ? sourceInfo.sourceName : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await db.insert(documents).values(documentValues);
+
+    // Get the document ID
+    const docResult = await db.execute(`SELECT LAST_INSERT_ID() as id`);
+    const documentId = parseInt((docResult as any)[0][0].id);
+
+    if (!documentId) {
+      throw new Error("Failed to get document ID");
+    }
+
+    // Store each content type in the generated_content table
+    if (contentType === "all" || contentType === "flashcards") {
+      if (content.flashcards) {
+        const flashcardsValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "flashcards",
+          content: JSON.stringify(content.flashcards),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(flashcardsValues);
+      }
+    }
+
+    if (contentType === "all" || contentType === "summary") {
+      if (content.summary) {
+        const summaryValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "summary",
+          content: JSON.stringify(content.summary),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(summaryValues);
+      }
+    }
+
+    if (contentType === "all" || contentType === "monologue") {
+      if (content.monologue) {
+        const contentObj = content.audioPath
+          ? { text: content.monologue, audioPath: content.audioPath }
+          : content.monologue;
+
+        const monologueValues = {
+          sessionId: sessionId,
+          userId: userId,
+          type: "monologue",
+          content: JSON.stringify(contentObj),
+          documentId: documentId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await db.insert(generatedContent).values(monologueValues);
+      }
+    }
+
+    return sessionId.toString();
+  } catch (error) {
+    console.error("Error storing content in database:", error);
+    return null;
+  }
 }
 
 // --- Server Action for File Uploads ---
@@ -211,101 +360,137 @@ export async function uploadAndProcessDocument(
   prevState: ActionResult | null,
   formData: FormData
 ): Promise<ActionResult> {
-  const session = await auth();
-  
-  if (!session?.userId) {
-    redirect("/sign-in");
-  }
+  console.log("Server Action: uploadAndProcessDocument triggered.");
+  const file = formData.get("file") as File | null;
+  const processingOption = formData.get("processingOption") as string | null;
 
-  const file = formData.get("file") as File;
-  const processingOption = formData.get("processingOption") as string;
-  const sessionId = formData.get("sessionId") as string;
-
-  if (!file) {
+  // Validation (remains the same)
+  if (!file || file.size === 0) {
     return {
       success: false,
-      message: "No file provided",
-      error: "No file provided",
+      message: "No file provided.",
+      error: "File Missing",
       inputSource: "file",
     };
   }
+  if (file.size > 15 * 1024 * 1024) {
+    return {
+      success: false,
+      message: "File exceeds 15MB limit.",
+      error: "File Too Large",
+      inputSource: "file",
+    };
+  }
+  const allowedTypes = [
+    "application/pdf",
+    "text/plain",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+  if (!allowedTypes.includes(file.type)) {
+    return {
+      success: false,
+      message: "Unsupported file type (PDF, DOC, DOCX, TXT only).",
+      error: "Invalid File Type",
+      inputSource: "file",
+    };
+  }
+
+  console.log(
+    `File: ${file.name}, Type: ${file.type}, Option: ${processingOption}`
+  );
 
   try {
-    // Create or get session
-    let currentSessionId = sessionId;
-    if (!currentSessionId) {
-      const [newSession] = await db
-        .insert(sessions)
-        .values({
-          userId: session.userId,
-          title: file.name,
-          description: "Document upload session",
-        })
-        .returning();
-      currentSessionId = newSession.id;
-    }
+    const model = getGeminiModel("gemini-1.5-flash");
+    const textPrompt = getPromptForOption(processingOption, "document");
+    const filePart = await fileToGenerativePart(file);
 
-    // Upload file and get content
-    const content = await uploadAndProcessDocument(file);
+    console.log("Sending file request to Gemini...");
+    const result = await model.generateContent([textPrompt, filePart]);
+    const response = result.response;
+    const generatedText = response.text();
+    console.log("Gemini response received.");
 
-    // Save document
-    const [document] = await db
-      .insert(documents)
-      .values({
-        userId: session.userId,
-        sessionId: currentSessionId,
-        title: file.name,
-        content,
-        fileUrl: file.name,
-        fileType: file.type,
-      })
-      .returning();
-
-    // Generate content based on option
-    let generatedContent;
-    switch (processingOption) {
-      case "flashcards":
-        generatedContent = await generateFlashcards(content);
-        break;
-      case "summary":
-        generatedContent = await generateSummary(content);
-        break;
-      case "conversation":
-        generatedContent = await startConversation(content);
-        break;
-      default:
-        generatedContent = await generateSummary(content);
-    }
-
-    // Save generated content
-    await db.insert(generated_content).values({
-      userId: session.userId,
-      sessionId: currentSessionId,
-      documentId: document.id,
-      type: processingOption,
-      content: generatedContent,
-    });
-
-    // Generate audio if the option is "conversation"
+    // For "all" option, extract individual content sections
+    let flashcardsText, summaryText, monologueText;
     let audioFilePath = null;
-    if (processingOption === "conversation") {
-      console.log("Generating audio for conversation...");
-      audioFilePath = await generateConversationAudio(generatedContent);
+
+    if (processingOption === "all") {
+      const sections = extractContentSections(generatedText);
+      flashcardsText = sections.flashcards;
+      summaryText = sections.summary;
+      monologueText = sections.monologue;
+
+      // Generate audio for the monologue part
+      if (monologueText) {
+        console.log("Generating audio for monologue...");
+        audioFilePath = await generateConversationAudio(monologueText);
+      }
+    } else {
+      // Generate audio if the option is "conversation"
+      if (processingOption === "conversation") {
+        console.log("Generating audio for conversation...");
+        audioFilePath = await generateConversationAudio(generatedText);
+        monologueText = generatedText;
+      } else if (processingOption === "flashcards") {
+        flashcardsText = generatedText;
+      } else if (processingOption === "summary") {
+        summaryText = generatedText;
+      }
     }
 
-    revalidatePath("/sessions/[id]");
+    // Store the content in the database
+    let sessionId = null;
+
+    sessionId = await storeGeneratedContent(
+      processingOption as any,
+      {
+        flashcards: flashcardsText,
+        summary: summaryText,
+        monologue: monologueText,
+        audioPath: audioFilePath || undefined,
+      },
+      {
+        sourceType: "file",
+        sourceName: file.name,
+      }
+    );
+
+    // Success message remains generic but accurate
     return {
       success: true,
-      message: `Document processed successfully${audioFilePath ? " with audio" : ""}`,
-      resultText: generatedContent,
+      message: `Successfully processed '${file.name}' for ${
+        processingOption === "all"
+          ? "flashcards, summary & monologue"
+          : processingOption || "summary"
+      }.${audioFilePath ? " Audio generated." : ""} ${
+        sessionId ? " Content saved to your account." : ""
+      }`,
+      resultText: generatedText,
       inputSource: "file",
       audioFilePath: audioFilePath || undefined,
+      flashcardsText: flashcardsText,
+      summaryText: summaryText,
+      monologueText: monologueText,
+      sessionId: sessionId || undefined,
     };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("Error processing file with Gemini:", error);
+    let errorMessage = "An unexpected error occurred during processing.";
+    if (error.message.includes("SAFETY")) {
+      errorMessage = "Content generation blocked due to safety settings.";
+    } else if (error.message.includes("429")) {
+      errorMessage = "Rate limit exceeded. Please try again later.";
+    } else if (error.message.includes("API key not valid")) {
+      errorMessage = "Invalid API Key.";
+    } else if (error.message.includes("Could not initialize AI Model")) {
+      errorMessage = error.message;
+    }
+
     return {
       success: false,
-      message: "Error processing document",
-      error: error instanceof Error ? error.message : "Unknown error",
+      message: errorMessage,
+      error: error.message || "Unknown API error",
       inputSource: "file",
     };
   }
@@ -316,101 +501,135 @@ export async function processYouTubeVideo(
   prevState: ActionResult | null,
   formData: FormData
 ): Promise<ActionResult> {
-  const session = await auth();
-  
-  if (!session?.userId) {
-    redirect("/sign-in");
-  }
+  console.log("Server Action: processYouTubeVideo triggered.");
+  const youtubeUrl = formData.get("youtubeUrl") as string | null;
+  const processingOption = formData.get("processingOption") as string | null;
 
-  const url = formData.get("url") as string;
-  const processingOption = formData.get("processingOption") as string;
-  const sessionId = formData.get("sessionId") as string;
-
-  if (!url) {
+  // Validation (remains the same)
+  if (
+    !youtubeUrl ||
+    typeof youtubeUrl !== "string" ||
+    youtubeUrl.trim() === ""
+  ) {
     return {
       success: false,
-      message: "No URL provided",
-      error: "No URL provided",
+      message: "YouTube URL is required.",
+      error: "URL Missing",
       inputSource: "youtube",
     };
   }
+  const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+/;
+  if (!youtubeRegex.test(youtubeUrl)) {
+    return {
+      success: false,
+      message: "Please enter a valid YouTube URL.",
+      error: "Invalid URL Format",
+      inputSource: "youtube",
+    };
+  }
+
+  console.log(`Processing URL: ${youtubeUrl}, Option: ${processingOption}`);
 
   try {
-    // Create or get session
-    let currentSessionId = sessionId;
-    if (!currentSessionId) {
-      const [newSession] = await db
-        .insert(sessions)
-        .values({
-          userId: session.userId,
-          title: "YouTube Video",
-          description: "YouTube video processing session",
-        })
-        .returning();
-      currentSessionId = newSession.id;
-    }
+    // Assuming there's some function to extract YouTube content (transcript/summary)
+    // This would be implementation-specific to your needs
+    // For now, let's call our model directly with the YouTube URL as context
 
-    // Process YouTube video and get content
-    const content = await processYouTubeVideo(url);
+    const model = getGeminiModel("gemini-1.5-flash");
+    const textPrompt = `${getPromptForOption(processingOption, "video")} 
+    YouTube Link: ${youtubeUrl}`;
 
-    // Save document
-    const [document] = await db
-      .insert(documents)
-      .values({
-        userId: session.userId,
-        sessionId: currentSessionId,
-        title: url,
-        content,
-        fileUrl: url,
-        fileType: "youtube",
-      })
-      .returning();
+    // Typical safety check (you can adjust thresholds as needed)
+    const safetySettings = [
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+    ];
 
-    // Generate content based on option
-    let generatedContent;
-    switch (processingOption) {
-      case "flashcards":
-        generatedContent = await generateFlashcards(content);
-        break;
-      case "summary":
-        generatedContent = await generateSummary(content);
-        break;
-      case "conversation":
-        generatedContent = await startConversation(content);
-        break;
-      default:
-        generatedContent = await generateSummary(content);
-    }
+    console.log("Sending YouTube URL request to Gemini...");
+    const result = await model.generateContent(textPrompt);
+    const response = result.response;
+    const generatedText = response.text();
+    console.log("Gemini response received for YouTube URL.");
 
-    // Save generated content
-    await db.insert(generated_content).values({
-      userId: session.userId,
-      sessionId: currentSessionId,
-      documentId: document.id,
-      type: processingOption,
-      content: generatedContent,
-    });
-
-    // Generate audio if the option is "conversation"
+    // For "all" option, extract individual content sections
+    let flashcardsText, summaryText, monologueText;
     let audioFilePath = null;
-    if (processingOption === "conversation") {
-      console.log("Generating audio for conversation...");
-      audioFilePath = await generateConversationAudio(generatedContent);
+
+    if (processingOption === "all") {
+      const sections = extractContentSections(generatedText);
+      flashcardsText = sections.flashcards;
+      summaryText = sections.summary;
+      monologueText = sections.monologue;
+
+      // Generate audio for the monologue part
+      if (monologueText) {
+        console.log("Generating audio for monologue...");
+        audioFilePath = await generateConversationAudio(monologueText);
+      }
+    } else {
+      // Generate audio if the option is "conversation"
+      if (processingOption === "conversation") {
+        console.log("Generating audio for conversation...");
+        audioFilePath = await generateConversationAudio(generatedText);
+        monologueText = generatedText;
+      } else if (processingOption === "flashcards") {
+        flashcardsText = generatedText;
+      } else if (processingOption === "summary") {
+        summaryText = generatedText;
+      }
     }
 
-    revalidatePath("/sessions/[id]");
+    // Store the content in the database
+    let sessionId = null;
+
+    sessionId = await storeGeneratedContent(
+      processingOption as any,
+      {
+        flashcards: flashcardsText,
+        summary: summaryText,
+        monologue: monologueText,
+        audioPath: audioFilePath || undefined,
+      },
+      {
+        sourceType: "youtube",
+        sourceName: youtubeUrl,
+      }
+    );
+
     return {
       success: true,
-      message: `YouTube video processed successfully${audioFilePath ? " with audio" : ""}`,
-      resultText: generatedContent,
+      message: `Successfully processed YouTube video for ${
+        processingOption === "all"
+          ? "flashcards, summary & monologue"
+          : processingOption || "summary"
+      }.${audioFilePath ? " Audio generated." : ""} ${
+        sessionId ? " Content saved to your account." : ""
+      }`,
+      resultText: generatedText,
       inputSource: "youtube",
       audioFilePath: audioFilePath || undefined,
+      flashcardsText: flashcardsText,
+      summaryText: summaryText,
+      monologueText: monologueText,
+      sessionId: sessionId || undefined,
     };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("Error processing YouTube URL with Gemini:", error);
+    let errorMessage = "An unexpected error occurred during processing.";
+    if (error.message.includes("SAFETY")) {
+      errorMessage = "Content generation blocked due to safety settings.";
+    } else if (error.message.includes("429")) {
+      errorMessage = "Rate limit exceeded. Please try again later.";
+    } else if (error.message.includes("API key not valid")) {
+      errorMessage = "Invalid API Key.";
+    }
+
     return {
       success: false,
-      message: "Error processing YouTube video",
-      error: error instanceof Error ? error.message : "Unknown error",
+      message: errorMessage,
+      error: error.message || "Unknown API error",
       inputSource: "youtube",
     };
   }
