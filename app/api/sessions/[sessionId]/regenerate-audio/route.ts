@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { sessions, generatedContent } from "@/db/schema";
+import { sessions, generatedContent } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { createClient } from "@deepgram/sdk";
 import fs from "fs";
@@ -84,9 +84,8 @@ async function generateAudio(text: string): Promise<string | null> {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { sessionId: string } }
+  { params }: { params: { sessionId: string } }
 ) {
-  const params = context.params;
   const sessionId = parseInt(params.sessionId, 10);
 
   if (isNaN(sessionId)) {
