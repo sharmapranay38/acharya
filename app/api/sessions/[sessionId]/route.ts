@@ -8,7 +8,7 @@ export async function GET(
   context: { params: { sessionId: string } }
 ) {
   // Await the params to avoid the dynamic API error
-  const params = context.params;
+  const params = await context.params;
   const sessionIdString = params.sessionId;
 
   if (!sessionIdString) {
@@ -58,7 +58,7 @@ export async function GET(
     if (relatedContent.length > 0) {
       console.log(
         `Content types:`,
-        relatedContent.map((item) => item.type).join(", ")
+        relatedContent.map((item: any) => item.type).join(", ")
       );
     }
 
@@ -87,7 +87,7 @@ export async function PUT(
   request: NextRequest,
   context: { params: { sessionId: string } }
 ) {
-  const params = context.params;
+  const params = await context.params;
   const sessionIdString = params.sessionId;
 
   if (!sessionIdString) {
