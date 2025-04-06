@@ -29,7 +29,7 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">Your Sessions</h3>
         <Button asChild>
-          <Link href="/sessions/new">
+          <Link href="/upload">
             <Plus className="mr-2 h-4 w-4" />
             New Session
           </Link>
@@ -41,7 +41,10 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
             <CardHeader>
               <CardTitle>{session.title}</CardTitle>
               <CardDescription>
-                Created {session.createdAt ? new Date(session.createdAt).toLocaleDateString() : 'Unknown date'}
+                Created{" "}
+                {session.createdAt
+                  ? new Date(session.createdAt).toLocaleDateString()
+                  : "Unknown date"}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -59,4 +62,4 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
       </div>
     </div>
   );
-} 
+}
