@@ -104,3 +104,114 @@
 .rotate-y-180.backface-hidden {
   transform: rotateY(180deg);
 }
+
+/* Simple black text on white background style for session detail page */
+.session-detail-page {
+  color: black !important;
+  background-color: white !important;
+}
+
+.session-detail-page pre,
+.session-detail-page code {
+  font-family: inherit;
+  white-space: pre-wrap;
+}
+
+.session-detail-page .content-display pre {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  background-color: #f9f9f9;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* Markdown styling */
+.session-detail-page .content-display {
+  line-height: 1.6;
+}
+
+.session-detail-page .content-display p {
+  margin-bottom: 1rem;
+}
+
+.session-detail-page .content-display h1,
+.session-detail-page .content-display h2,
+.session-detail-page .content-display h3,
+.session-detail-page .content-display h4 {
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.session-detail-page .content-display h1 {
+  font-size: 1.5rem;
+}
+
+.session-detail-page .content-display h2 {
+  font-size: 1.25rem;
+}
+
+.session-detail-page .content-display h3 {
+  font-size: 1.125rem;
+}
+
+.session-detail-page .content-display ul,
+.session-detail-page .content-display ol {
+  margin-bottom: 1rem;
+  margin-left: 1.5rem;
+}
+
+.session-detail-page .content-display ul {
+  list-style-type: disc;
+}
+
+.session-detail-page .content-display ol {
+  list-style-type: decimal;
+}
+
+.session-detail-page .content-display li {
+  margin-bottom: 0.25rem;
+}
+
+.session-detail-page .content-display a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.session-detail-page .content-display a:hover {
+  text-decoration: underline;
+}
+
+.session-detail-page .content-display blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  font-style: italic;
+  margin-bottom: 1rem;
+}
+
+.session-detail-page .content-display code {
+  background-color: #f3f4f6;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+}
+
+.session-detail-page .content-display pre {
+  background-color: #f3f4f6;
+  padding: 1rem;
+  border-radius: 0.25rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.session-detail-page .content-display pre code {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
