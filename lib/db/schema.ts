@@ -1,12 +1,4 @@
-import {
-  timestamp,
-  text,
-  pgTable,
-  serial,
-  integer,
-  boolean,
-  json,
-} from "drizzle-orm/pg-core";
+import { timestamp, text, pgTable, serial, integer } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const documents = pgTable("documents", {

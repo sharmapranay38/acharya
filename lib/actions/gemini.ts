@@ -12,12 +12,8 @@ import { pipeline } from "stream/promises";
 import path from "path";
 import { Readable } from "stream";
 import { auth } from "@clerk/nextjs/server";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { documents, sessions, generatedContent } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { documents, sessions, generated_content } from "@/db/schema";
 
 // --- Define structure for action results (shared by both actions) ---
 export interface ActionResult {
@@ -308,7 +304,7 @@ async function storeGeneratedContent(
           updatedAt: new Date(),
         };
 
-        await db.insert(generatedContent).values(flashcardsValues);
+        await db.insert(generated_content).values(flashcardsValues);
       }
     }
 
@@ -324,7 +320,7 @@ async function storeGeneratedContent(
           updatedAt: new Date(),
         };
 
-        await db.insert(generatedContent).values(summaryValues);
+        await db.insert(generated_content).values(summaryValues);
       }
     }
 
@@ -344,7 +340,7 @@ async function storeGeneratedContent(
           updatedAt: new Date(),
         };
 
-        await db.insert(generatedContent).values(monologueValues);
+        await db.insert(generated_content).values(monologueValues);
       }
     }
 

@@ -18,12 +18,18 @@ export default function Home() {
               Home
             </Link>
             <SignedIn>
-              <Link href="/dashboard" className="text-sm font-medium hover:text-primary">
+              <Link
+                href="/dashboard"
+                className="text-sm font-medium hover:text-primary"
+              >
                 Dashboard
               </Link>
             </SignedIn>
             <SignedOut>
-              <Link href="/sign-in" className="text-sm font-medium hover:text-primary">
+              <Link
+                href="/sign-in"
+                className="text-sm font-medium hover:text-primary"
+              >
                 Sign In
               </Link>
             </SignedOut>
@@ -39,7 +45,8 @@ export default function Home() {
               Your AI Learning Assistant
             </h1>
             <p className="max-w-[42rem] leading-normal text-muted-foreground sm:text-xl sm:leading-8">
-              Transform your learning experience with AI-powered tools for creating flashcards, summarizing documents, and more.
+              Transform your learning experience with AI-powered tools for
+              creating flashcards, summarizing documents, and more.
             </p>
             <div className="space-x-4">
               <SignedIn>
@@ -49,7 +56,9 @@ export default function Home() {
               </SignedIn>
               <SignedOut>
                 <Button asChild size="lg">
-                  <Link href="/sign-in?redirect_url=/dashboard">Get Started</Link>
+                  <Link href="/sign-in?redirect_url=/dashboard">
+                    Get Started
+                  </Link>
                 </Button>
               </SignedOut>
             </div>
