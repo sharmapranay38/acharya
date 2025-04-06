@@ -3,12 +3,10 @@ import { db } from "@/lib/db"; // Assuming @/ is configured for your src directo
 import { sessions, generatedContent } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
-) {
-  // Await the params to avoid the dynamic API error
-  const sessionIdString = params.sessionId;
+export async function GET(request: NextRequest) {
+  // Extract sessionId from the URL path segments
+  const pathParts = request.nextUrl.pathname.split('/');
+  const sessionIdString = pathParts[pathParts.indexOf('sessions') + 1];
 
   if (!sessionIdString) {
     return NextResponse.json(
@@ -80,11 +78,10 @@ export async function GET(
 }
 
 // TEST ENDPOINT: Add sample content to a session
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
-) {
-  const sessionIdString = params.sessionId;
+export async function PUT(request: NextRequest) {
+  // Extract sessionId from the URL path segments
+  const pathParts = request.nextUrl.pathname.split('/');
+  const sessionIdString = pathParts[pathParts.indexOf('sessions') + 1];
 
   if (!sessionIdString) {
     return NextResponse.json(

@@ -82,13 +82,18 @@ async function generateAudio(text: string): Promise<string | null> {
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
-) {
-  const sessionId = parseInt(params.sessionId, 10);
+export async function POST(request: NextRequest) {
+  // Extract sessionId from the URL path segments
+  const pathParts = request.nextUrl.pathname.split('/');
+  const sessionId = pathParts[pathParts.indexOf('sessions') + 1];
+  
+  if (!sessionId) {
+    return NextResponse.json({ error: "Invalid Session ID" }, { status: 400 });
+  }
 
-  if (isNaN(sessionId)) {
+  const sessionIdNum = parseInt(sessionId, 10);
+
+  if (isNaN(sessionIdNum)) {
     return NextResponse.json({ error: "Invalid Session ID" }, { status: 400 });
   }
 
@@ -110,7 +115,7 @@ export async function POST(
       .where(
         and(
           eq(generatedContent.id, contentId),
-          eq(generatedContent.sessionId, sessionId)
+          eq(generatedContent.sessionId, sessionIdNum)
         )
       )
       .execute();
