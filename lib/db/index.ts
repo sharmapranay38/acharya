@@ -1,15 +1,17 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import { createPool } from "mysql2/promise";
+import mysql from "mysql2/promise";
 import * as schema from "./schema";
 
-// Parse the connection string
-const connectionString = process.env.DATABASE_URL || "";
-
 // Create the connection pool
-const pool = createPool({
-  uri: connectionString,
-  ssl: {},  // Simplified SSL config to avoid Node.js built-in modules
-  connectionLimit: 1,
+const pool = mysql.createPool({
+  host: process.env.DATABASE_HOST,
+  user: process.env.DATABASE_USER,
+  password: process.env.DATABASE_PASSWORD,
+  database: process.env.DATABASE_NAME,
+  port: parseInt(process.env.DATABASE_PORT || "3306"),
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Create the database instance
