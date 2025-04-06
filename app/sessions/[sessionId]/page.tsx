@@ -404,6 +404,7 @@ export default function SessionDetailPage() {
             .replace(/\\n\*/g, "") // Remove \n* sequences
             .replace(/\\\*/g, "") // Remove escaped asterisks
             .replace(/\*\*/g, "") // Remove ** sequences
+            .replace(/\*/g, "") // Remove single * characters
             .replace(/\\n/g, "\n") // Convert \n to actual newlines
             .replace(/\\t/g, "\t") // Convert \t to actual tabs
             .replace(/\\r/g, "") // Remove \r
@@ -414,6 +415,7 @@ export default function SessionDetailPage() {
             .replace(/\\n\*/g, "") // Remove \n* sequences
             .replace(/\\\*/g, "") // Remove escaped asterisks
             .replace(/\*\*/g, "") // Remove ** sequences
+            .replace(/\*/g, "") // Remove single * characters
             .replace(/\\n/g, "\n") // Convert \n to actual newlines
             .replace(/\\t/g, "\t") // Convert \t to actual tabs
             .replace(/\\r/g, "") // Remove \r
@@ -429,6 +431,7 @@ export default function SessionDetailPage() {
           .replace(/\\n\*/g, "") // Remove \n* sequences
           .replace(/\\\*/g, "") // Remove escaped asterisks
           .replace(/\*\*/g, "") // Remove ** sequences
+          .replace(/\*/g, "") // Remove single * characters
           .replace(/\\n/g, "\n") // Convert \n to actual newlines
           .replace(/\\t/g, "\t") // Convert \t to actual tabs
           .replace(/\\r/g, "") // Remove \r
