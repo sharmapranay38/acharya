@@ -1,15 +1,19 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import * as schema from "./schema";
 
 // Parse the connection string
 const connectionString = process.env.DATABASE_URL || "";
 
 // Create the connection
-const client = postgres(connectionString, {
-  ssl: true, // Enable SSL for secure connections
-  max: 1, // Use a single connection for serverless environments
+const connection = mysql.createPool({
+  uri: connectionString,
+  ssl: {
+    rejectUnauthorized: true
+  },
+  // Use a single connection for serverless environments
+  connectionLimit: 1,
 });
 
 // Create the database instance
-export const db = drizzle(client, { schema });
+export const db = drizzle(connection, { schema, mode: 'default' });
