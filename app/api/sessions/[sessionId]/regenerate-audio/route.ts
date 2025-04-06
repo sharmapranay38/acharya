@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db } from "@/lib/db";
 import { sessions, generatedContent } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { createClient } from "@deepgram/sdk";
@@ -104,16 +104,22 @@ export async function POST(
     }
 
     // Find the content item
-    const contentItem = await db.query.generatedContent.findFirst({
-      where: and(
-        eq(generatedContent.id, contentId),
-        eq(generatedContent.sessionId, sessionId)
-      ),
-    });
+    const contentItems = await db
+      .select()
+      .from(generatedContent)
+      .where(
+        and(
+          eq(generatedContent.id, contentId),
+          eq(generatedContent.sessionId, sessionId)
+        )
+      )
+      .execute();
 
-    if (!contentItem) {
+    if (!contentItems || contentItems.length === 0) {
       return NextResponse.json({ error: "Content not found" }, { status: 404 });
     }
+
+    const contentItem = contentItems[0];
 
     // Extract the text content based on content type (monologue, summary, etc.)
     let textToConvert = "";
@@ -226,52 +232,41 @@ export async function POST(
 
     if (typeof originalContent === "string") {
       try {
+        // Try to parse it as JSON first
         const parsed = JSON.parse(originalContent);
         if (typeof parsed === "object" && parsed !== null) {
-          // Update existing object as Record<string, any>
-          const parsedObj = parsed as Record<string, any>;
-          parsedObj.audioPath = audioPath;
-          if (contentType === "monologue" || contentType === "podcast") {
-            // Make sure we have the text stored too
-            if (!parsedObj.text) {
-              parsedObj.text = textToConvert;
-            }
-          }
-          updatedContent = JSON.stringify(parsedObj);
-        } else {
-          // Create a new object with text and audioPath
+          // For objects, add/update the audioPath property
           updatedContent = JSON.stringify({
-            text: textToConvert,
+            ...parsed,
+            audioPath: audioPath,
+          });
+        } else {
+          // For non-objects, create a new object with text and audioPath
+          updatedContent = JSON.stringify({
+            text: originalContent,
             audioPath: audioPath,
           });
         }
       } catch (e) {
-        // Create a new object with the original content as text
+        // If not valid JSON, create a new object
         updatedContent = JSON.stringify({
           text: originalContent,
           audioPath: audioPath,
         });
       }
-    } else if (
-      typeof originalContent === "object" &&
-      originalContent !== null
-    ) {
-      // For object content, ensure we update the right object
-      const contentObj = { ...originalContent } as Record<string, any>;
-      contentObj.audioPath = audioPath;
-      // Ensure text is stored
-      if (contentType === "monologue" || contentType === "podcast") {
-        if (!contentObj.text) {
-          contentObj.text = textToConvert;
-        }
-      }
-      updatedContent = contentObj;
+    } else if (typeof originalContent === "object" && originalContent !== null) {
+      // For objects, add/update the audioPath property
+      const contentObj = originalContent as Record<string, any>;
+      updatedContent = JSON.stringify({
+        ...contentObj,
+        audioPath: audioPath,
+      });
     } else {
       // Fallback for any other type
-      updatedContent = {
-        text: String(originalContent || ""),
+      updatedContent = JSON.stringify({
+        text: String(originalContent),
         audioPath: audioPath,
-      };
+      });
     }
 
     console.log(
@@ -288,7 +283,8 @@ export async function POST(
         content: updatedContent,
         updatedAt: new Date(),
       })
-      .where(eq(generatedContent.id, contentId));
+      .where(eq(generatedContent.id, contentId))
+      .execute();
 
     return NextResponse.json({
       success: true,

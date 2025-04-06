@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db"; // Assuming @/ is configured for your src directory
+import { db } from "@/lib/db"; // Assuming @/ is configured for your src directory
 import { sessions, generatedContent } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -26,27 +26,25 @@ export async function GET(
   }
 
   try {
-    // Drizzle doesn't automatically create reverse relations in the query API
-    // unless defined with `relations`. We'll fetch the session first,
-    // then fetch the related generated content.
+    // Get the session using PostgreSQL query format
+    const sessionResults = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .execute();
 
-    const session = await db.query.sessions.findFirst({
-      where: eq(sessions.id, sessionId),
-      // If you have relations defined using drizzle-orm's `relations` helper,
-      // you could potentially use this:
-      // with: {
-      //   generatedContents: true // Assuming the relation name is generatedContents
-      // }
-    });
-
-    if (!session) {
+    if (!sessionResults || sessionResults.length === 0) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Fetch related generated content separately
-    const relatedContent = await db.query.generatedContent.findMany({
-      where: eq(generatedContent.sessionId, sessionId),
-    });
+    const session = sessionResults[0];
+
+    // Fetch related generated content separately using PostgreSQL query format
+    const relatedContent = await db
+      .select()
+      .from(generatedContent)
+      .where(eq(generatedContent.sessionId, sessionId))
+      .execute();
 
     // Debug: Log what we found
     console.log(`Session ${sessionId} found:`, session);
@@ -104,14 +102,18 @@ export async function PUT(
   }
 
   try {
-    // 1. Check if session exists
-    const session = await db.query.sessions.findFirst({
-      where: eq(sessions.id, sessionId),
-    });
+    // 1. Check if session exists using PostgreSQL query format
+    const sessionResults = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .execute();
 
-    if (!session) {
+    if (!sessionResults || sessionResults.length === 0) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
+
+    const session = sessionResults[0];
 
     // 2. Create sample content entries
     const sampleContentTypes = [
@@ -122,32 +124,32 @@ export async function PUT(
       },
       {
         type: "flashcards",
-        content: [
+        content: JSON.stringify([
           { question: "What is the main topic?", answer: "Sample topic 1" },
           {
             question: "What is an important concept?",
             answer: "Sample concept explanation",
           },
-        ],
+        ]),
       },
       {
         type: "podcast",
-        content: {
+        content: JSON.stringify({
           audioUrl: "https://example.com/sample-podcast.mp3",
           title: "Sample Podcast",
           duration: "10:30",
-        },
+        }),
       },
     ];
 
-    // 3. Insert the sample content
+    // 3. Insert the sample content using PostgreSQL query format
     const insertPromises = sampleContentTypes.map((sample) =>
       db.insert(generatedContent).values({
         sessionId,
         userId: session.userId,
         type: sample.type,
         content: sample.content,
-      })
+      }).execute()
     );
 
     await Promise.all(insertPromises);
