@@ -30,7 +30,7 @@ export const documents = mysqlTable("documents", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
-export const generatedContent = mysqlTable("generated_content", {
+export const generated_content = mysqlTable("generated_content", {
   id: int("id").primaryKey().autoincrement(),
   sessionId: int("session_id")
     .notNull()
