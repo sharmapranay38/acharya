@@ -1,19 +1,16 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import { createPool } from "mysql2/promise";
 import * as schema from "./schema";
 
 // Parse the connection string
 const connectionString = process.env.DATABASE_URL || "";
 
-// Create the connection
-const connection = mysql.createPool({
+// Create the connection pool
+const pool = createPool({
   uri: connectionString,
-  ssl: {
-    rejectUnauthorized: true
-  },
-  // Use a single connection for serverless environments
+  ssl: {},  // Simplified SSL config to avoid Node.js built-in modules
   connectionLimit: 1,
 });
 
 // Create the database instance
-export const db = drizzle(connection, { schema, mode: 'default' });
+export const db = drizzle(pool, { schema, mode: 'default' });
