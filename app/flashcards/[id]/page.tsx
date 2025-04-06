@@ -47,7 +47,14 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-export default function FlashcardStudyPage({ params }: { params: { id: string } }) {
+interface PageProps {
+  params: {
+    id: string;
+  };
+  searchParams: Record<string, string | string[] | undefined>;
+}
+
+export default function FlashcardStudyPage({ params }: PageProps) {
   const [mounted, setMounted] = useState(false);
   const [cards, setCards] = useState(sampleFlashcards);
   const [currentIndex, setCurrentIndex] = useState(0);

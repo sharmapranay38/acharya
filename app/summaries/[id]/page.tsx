@@ -4,7 +4,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Download, Share2, BookOpen } from "lucide-react"
 
-export default function SummaryPage({ params }: { params: { id: string } }) {
+interface PageProps {
+  params: {
+    id: string;
+  };
+  searchParams: Record<string, string | string[] | undefined>;
+}
+
+export default function SummaryPage({ params }: PageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <DashboardHeader />
@@ -158,4 +165,3 @@ export default function SummaryPage({ params }: { params: { id: string } }) {
     </div>
   )
 }
-
